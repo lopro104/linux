@@ -60,7 +60,14 @@
 	 */
 	efi_signature_nop			// special NOP to identity as PE/COFF executable
 	b	primary_entry			// branch to kernel start, magic
-	.quad	0				// Image load offset from start of RAM, little-endian
+	/*
+	 * Pixel 4a (sunfish) ABL hardcodes the expected Image load offset to
+	 * 0x80000 (matching Google's downstream TEXT_OFFSET) and refuses to
+	 * boot a kernel whose header disagrees ("Kernel TextOffset does not
+	 * match"). The kernel is relocatable, so advertising 0x80000 here is
+	 * harmless for every other loader (EFI stub/GRUB honor it too).
+	 */
+	.quad	0x80000				// Image load offset from start of RAM, little-endian
 	le64sym	_kernel_size_le			// Effective size of kernel image, little-endian
 	le64sym	_kernel_flags_le		// Informative flags, little-endian
 	.quad	0				// reserved
