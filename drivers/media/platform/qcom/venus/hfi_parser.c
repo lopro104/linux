@@ -266,7 +266,7 @@ static int hfi_platform_parser(struct venus_core *core, struct venus_inst *inst)
 {
 	const struct hfi_platform *plat;
 	const struct hfi_plat_caps *caps = NULL;
-	u32 enc_codecs, dec_codecs, count = 0;
+	u32 enc_codecs = 0, dec_codecs = 0, count = 0;
 	unsigned int entries;
 
 	plat = hfi_platform_get(core->res->hfi_version);
@@ -276,8 +276,11 @@ static int hfi_platform_parser(struct venus_core *core, struct venus_inst *inst)
 	if (inst)
 		return 0;
 
-	if (plat->codecs)
+	if (plat->codecs) {
 		plat->codecs(core, &enc_codecs, &dec_codecs, &count);
+		dec_codecs &= ~core->res->dec_codec_blacklist;
+		enc_codecs &= ~core->res->enc_codec_blacklist;
+	}
 
 	if (plat->capabilities)
 		caps = plat->capabilities(core, &entries);
