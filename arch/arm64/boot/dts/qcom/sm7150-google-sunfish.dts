@@ -636,7 +636,29 @@
 	*/
 
 	/* st,m24c08 e2prom@50 */
-	/* ti,drv2624 haptic@5a */
+
+	haptic@5a {
+		compatible = "ti,drv2624";
+		reg = <0x5a>;
+
+		enable-gpios = <&tlmm 11 GPIO_ACTIVE_HIGH>;
+
+		ti,actuator = "lra";
+		ti,lra-frequency-hz = <172>;
+
+		/* Tone down the LRA: overdrive clamp lowered from the 0x89
+		 * (~4 Vpk) chip default to ~2.8 Vpk so haptics aren't harsh. */
+		ti,od-clamp-reg = <0x60>;
+
+		/* Factory autocal + open-loop period from a real sunfish
+		 * /persist/haptics/drv2624.cal (shared default). */
+		ti,autocal-comp = /bits/ 8 <18 150 0>;
+		ti,ol-lra-period = <241>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&haptic_en_default>;
+	};
+
 	/* dlg,slg51000 pmic@75*/
 };
 
@@ -915,6 +937,13 @@
 		drive-strength = <2>;
 		bias-pull-up;
 		output-high;
+	};
+
+	haptic_en_default: haptic-en-default-state {
+		pins = "gpio11";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
 	};
 };
 
