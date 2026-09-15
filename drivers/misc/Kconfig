@@ -642,6 +642,18 @@ config MCHP_LAN966X_PCI
 	    - lan966x-miim (MDIO_MSCC_MIIM)
 	    - lan966x-switch (LAN966X_SWITCH)
 
+config CITADEL
+	tristate "Google Citadel (Titan M) transport driver"
+	depends on SPI
+	help
+	  Say Y here if you have a Citadel security microcontroller from
+	  Google Inc, as found in Pixel 3/4 phones. It is exposed to userspace
+	  as a TPM-style transport at /dev/citadelN, used by the citadeld,
+	  keymaster and weaver HALs.
+
+	  To compile this driver as a module, choose M here: the module will
+	  be called citadel-spi.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
