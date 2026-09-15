@@ -884,12 +884,38 @@
 &spi1 {
 	status = "okay";
 
-	/* google,citadel @ 0 */
+	citadel: citadel@0 {
+		compatible = "google,citadel";
+		reg = <0>;
+		spi-max-frequency = <1200000>;
+
+		ctdl-ap-irq-gpios = <&tlmm 4 GPIO_ACTIVE_HIGH>;
+		ctdl-rst-gpios = <&tlmm 25 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-0 = <&ctdl_ap_irq_default>, <&ap_ctdl_irq_default>;
+		pinctrl-names = "default";
+	};
+
 	/* st,st54j_se @ 1 */
 };
 
 &tlmm {
 	gpio-reserved-ranges = <59 4>;
+
+	ctdl_ap_irq_default: ctdl-ap-irq-default-state {
+		pins = "gpio4";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	ap_ctdl_irq_default: ap-ctdl-irq-default-state {
+		pins = "gpio16";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		output-high;
+	};
 
 	mdp_vsync_p: mdp-vsync-p-state {
 		pins = "gpio10";
