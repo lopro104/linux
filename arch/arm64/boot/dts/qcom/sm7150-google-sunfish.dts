@@ -882,6 +882,13 @@
 };
 
 &spi1 {
+	/*
+	 * The Titan M SPI lines (gpio0-3) are muxed by the bootloader and
+	 * locked down; downstream deliberately gives this SE an empty
+	 * pinctrl. Do the same and keep the kernel away from those pins.
+	 */
+	/delete-property/ pinctrl-0;
+	/delete-property/ pinctrl-names;
 	status = "okay";
 
 	citadel: citadel@0 {
@@ -900,7 +907,7 @@
 };
 
 &tlmm {
-	gpio-reserved-ranges = <59 4>;
+	gpio-reserved-ranges = <0 4>, <59 4>;
 
 	ctdl_ap_irq_default: ctdl-ap-irq-default-state {
 		pins = "gpio4";
