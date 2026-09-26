@@ -348,6 +348,19 @@ config INPUT_APANEL
 	 To compile this driver as a module, choose M here: the module will
 	 be called apanel.
 
+config INPUT_FPC1020
+	tristate "FPC1020 fingerprint sensor platform driver"
+	depends on GPIOLIB || COMPILE_TEST
+	help
+	  Say Y here to enable power, reset and interrupt control for an
+	  FPC1020-family fingerprint sensor whose SPI bus is owned by a
+	  TrustZone application, as found on the Google Pixel 4a. The
+	  sensor interrupt is exposed through sysfs to the vendor
+	  fingerprint HAL.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called fpc1020.
+
 config INPUT_GPIO_BEEPER
 	tristate "Generic GPIO Beeper support"
 	depends on GPIOLIB || COMPILE_TEST

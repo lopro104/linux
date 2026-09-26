@@ -58,6 +58,22 @@
 		};
 	};
 
+	/*
+	 * The sensor's SPI bus belongs to the TrustZone fingerprint app;
+	 * Linux only drives reset and forwards the interrupt. The vendor
+	 * HAL finds the device by looking for "fpc1020" under
+	 * /sys/bus/platform/devices, so keep that in the node name.
+	 */
+	fp_fpc1020: fp-fpc1020 {
+		compatible = "fpc,fpc1020";
+
+		irq-gpios = <&tlmm 90 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&tlmm 91 GPIO_ACTIVE_LOW>;
+
+		pinctrl-0 = <&fp_irq_default>, <&fp_reset_default>;
+		pinctrl-names = "default";
+	};
+
 	gpio_keys: gpio-keys {
 		compatible = "gpio-keys";
 
@@ -970,6 +986,20 @@
 		drive-strength = <2>;
 		bias-pull-up;
 		output-high;
+	};
+
+	fp_irq_default: fp-irq-default-state {
+		pins = "gpio90";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	fp_reset_default: fp-reset-default-state {
+		pins = "gpio91";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
 	};
 
 	haptic_en_default: haptic-en-default-state {
