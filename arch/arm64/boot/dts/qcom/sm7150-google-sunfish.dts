@@ -597,6 +597,13 @@
 		reset-gpios = <&tlmm 8 GPIO_ACTIVE_LOW>;
 
 		/*
+		 * The FTM5 touch IC is in-cell: it lives inside the OLED panel
+		 * module and is powered through the panel's own rails, so the
+		 * driver follows the panel's prepare/unprepare to power it.
+		 */
+		panel = <&panel>;
+
+		/*
 		 * GPIO 72 routes the touch IRQ between the AP (active-low)
 		 * and SLPI (active-high). Mainline only services the AP path,
 		 * so the driver holds this deasserted (low) by default.
