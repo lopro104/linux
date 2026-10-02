@@ -79,12 +79,16 @@ static int qcom_qg_get_voltage(struct qcom_qg_chip *chip, u8 offset, int *val)
 }
 
 /*
- * Yes, this function simply calculates the capacity based on
- * the current voltage. This will be rewritten in the future.
+ * Capacity is estimated from the averaged battery voltage. If the battery
+ * node provides OCV-capacity tables (ocv-capacity-celsius /
+ * ocv-capacity-table-N), look the voltage up in the table closest to the
+ * current battery temperature; Li-ion voltage is far from linear in state
+ * of charge, so this is much more accurate at the low end. Otherwise fall
+ * back to a linear interpolation between the design min and max voltages.
  */
 static int qcom_qg_get_capacity(struct qcom_qg_chip *chip, int *val)
 {
-	int ret, voltage_now;
+	int ret, voltage_now, temp;
 	int voltage_min = chip->batt_info->voltage_min_design_uv;
 	int voltage_max = chip->batt_info->voltage_max_design_uv;
 
@@ -93,6 +97,19 @@ static int qcom_qg_get_capacity(struct qcom_qg_chip *chip, int *val)
 	if (ret) {
 		dev_err(chip->dev, "Failed to get current voltage: %d\n", ret);
 		return ret;
+	}
+
+	if (chip->batt_info->ocv_table_size[0] > 0) {
+		/* millidegC -> degC; assume room temperature if unreadable */
+		if (iio_read_channel_processed(chip->batt_therm_chan, &temp) < 0)
+			temp = 25000;
+
+		ret = power_supply_batinfo_ocv2cap(chip->batt_info, voltage_now,
+						   temp / 1000);
+		if (ret >= 0) {
+			*val = clamp(ret, 0, 100);
+			return 0;
+		}
 	}
 
 	if (voltage_now <= voltage_min)
