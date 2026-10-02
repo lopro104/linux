@@ -662,7 +662,22 @@
 	status = "okay";
 	clock-frequency = <400000>;
 
-	/* st21nfc nfc@8 */
+	/*
+	 * ST21NFCD, driven from userspace by the Android ST NFC HAL through
+	 * /dev/st21nfc. GPIOs as in downstream sm7150-sunfish-nfc.dtsi.
+	 */
+	nfc@8 {
+		compatible = "st,st21nfc";
+		reg = <0x08>;
+
+		interrupts-extended = <&tlmm 37 IRQ_TYPE_EDGE_RISING>;
+
+		irq-gpios = <&tlmm 37 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&tlmm 67 GPIO_ACTIVE_HIGH>;
+		pidle-gpios = <&tlmm 94 GPIO_ACTIVE_HIGH>;
+		clkreq-gpios = <&tlmm 31 GPIO_ACTIVE_HIGH>;
+		st,clk_pinctrl;
+	};
 
 	codec: rt5514@57 {
 		compatible = "realtek,rt5514";
