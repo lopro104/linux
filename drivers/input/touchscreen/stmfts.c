@@ -651,6 +651,18 @@ static int stmfts5_input_open(struct input_dev *dev)
 
 	err = stmfts5_set_scan_mode(sdata, 0xff);
 	if (err) {
+		/*
+		 * In panel-follower mode the chip is unpowered until the panel
+		 * is prepared, and the input device is registered before that.
+		 * Userspace (e.g. Android's EventHub) opens it immediately and
+		 * never retries a failed open, so succeed here: running is set,
+		 * and stmfts_panel_prepared() starts scanning once powered.
+		 */
+		if (drm_is_panel_follower(&sdata->client->dev)) {
+			dev_dbg(&sdata->client->dev,
+				"chip not powered yet, scan starts with panel\n");
+			return 0;
+		}
 		pm_runtime_put_sync(&sdata->client->dev);
 		return err;
 	}
