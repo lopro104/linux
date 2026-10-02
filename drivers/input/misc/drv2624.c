@@ -154,6 +154,8 @@ struct drv2624_data {
 
 	u8 magnitude;
 	u32 replay_length;
+	/* ff-memless's playback, wrapped to record the started effect's length */
+	int (*ml_playback)(struct input_dev *dev, int effect_id, int value);
 };
 
 static const struct regmap_config drv2624_regmap_config = {
@@ -217,9 +219,9 @@ static void drv2624_worker(struct work_struct *work)
 	/*
 	 * Short effect → trigger whatever's already parked. Probe parks the
 	 * chip in WAV_SEQ + WAV_FRM_SEQ1=CLICK, so the GO write fires the
-	 * ROM CLICK from RAM.
+	 * ROM CLICK from RAM. A length of 0 means "until stopped".
 	 */
-	if (h->replay_length <= DRV2624_SHORT_PLAY_MS) {
+	if (h->replay_length && h->replay_length <= DRV2624_SHORT_PLAY_MS) {
 		unsigned int mode = 0;
 
 		regmap_read(h->regmap, DRV2624_REG_MODE, &mode);
@@ -263,10 +265,24 @@ static int drv2624_play(struct input_dev *input, void *data,
 		mag = effect->u.rumble.weak_magnitude;
 
 	h->magnitude = mag >> 9;	/* u16 → 0..0x7F RTP range */
-	h->replay_length = effect->replay.length;
 
 	schedule_work(&h->work);
 	return 0;
+}
+
+/*
+ * ff-memless hands play() a combined effect whose replay.length is
+ * always 0, so record the length of the effect being started here,
+ * where the uploaded effect is still known.
+ */
+static int drv2624_ff_playback(struct input_dev *dev, int effect_id, int value)
+{
+	struct drv2624_data *h = input_get_drvdata(dev);
+
+	if (value > 0)
+		h->replay_length = dev->ff->effects[effect_id].replay.length;
+
+	return h->ml_playback(dev, effect_id, value);
 }
 
 static void drv2624_close(struct input_dev *input)
@@ -572,6 +588,8 @@ static int drv2624_probe(struct i2c_client *client)
 	error = input_ff_create_memless(h->input_dev, NULL, drv2624_play);
 	if (error)
 		goto err_gpio_low;
+	h->ml_playback = h->input_dev->ff->playback;
+	h->input_dev->ff->playback = drv2624_ff_playback;
 
 	error = input_register_device(h->input_dev);
 	if (error)
