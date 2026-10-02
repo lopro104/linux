@@ -65,6 +65,17 @@ source "drivers/nfc/pn544/Kconfig"
 source "drivers/nfc/pn533/Kconfig"
 source "drivers/nfc/microread/Kconfig"
 source "drivers/nfc/nfcmrvl/Kconfig"
+config NFC_ST21NFC
+	tristate "ST Microelectronics ST21NFC NFC controller (Android HAL)"
+	depends on I2C && GPIOLIB
+	help
+	  Character-device driver for the ST21NFC family of NFC controllers
+	  (e.g. ST21NFCD on the Google Pixel 4a). It exposes /dev/st21nfc,
+	  which the Android ST NFC HAL uses to exchange raw NCI frames; it
+	  does not register with the kernel NFC core.
+
+	  Say M to build it as a module, which will be called st21nfc.
+
 source "drivers/nfc/st21nfca/Kconfig"
 source "drivers/nfc/st-nci/Kconfig"
 source "drivers/nfc/nxp-nci/Kconfig"
