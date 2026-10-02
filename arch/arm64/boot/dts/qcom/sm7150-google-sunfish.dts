@@ -718,8 +718,53 @@
 	clock-frequency = <400000>;
 
 	/* microchip,pac1934 power-monitor@10 */
-	/* cirrus,cs35l41 speaker-amp@40 */
-	/* cirrus,cs35l41 speaker-amp@41 */
+	/*
+	 * Top (earpiece/left) and bottom (loudspeaker/right) CS35L41 smart
+	 * amps, fed by the ADSP over tertiary TDM. Values follow the
+	 * downstream sm7150-sunfish-audio.dtsi: internal boost, IRQ routed
+	 * out on GPIO2 as push-pull active-high.
+	 */
+	speaker_top: speaker-amp@40 {
+		compatible = "cirrus,cs35l41";
+		reg = <0x40>;
+		#sound-dai-cells = <1>;
+		sound-name-prefix = "L";
+
+		reset-gpios = <&pm6150l_gpios 8 GPIO_ACTIVE_HIGH>;
+		interrupts-extended = <&tlmm 64 IRQ_TYPE_LEVEL_HIGH>;
+
+		pinctrl-0 = <&spk_top_reset_default>, <&spk_top_irq_default>;
+		pinctrl-names = "default";
+
+		cirrus,boost-type = <0>;
+		cirrus,boost-peak-milliamp = <3700>;
+		cirrus,boost-ind-nanohenry = <1000>;
+		cirrus,boost-cap-microfarad = <15>;
+		cirrus,asp-sdout-hiz = <3>;
+		cirrus,gpio2-src-select = <5>;
+		cirrus,gpio2-output-enable;
+	};
+
+	speaker_bottom: speaker-amp@41 {
+		compatible = "cirrus,cs35l41";
+		reg = <0x41>;
+		#sound-dai-cells = <1>;
+		sound-name-prefix = "R";
+
+		reset-gpios = <&pm6150l_gpios 11 GPIO_ACTIVE_HIGH>;
+		interrupts-extended = <&tlmm 65 IRQ_TYPE_LEVEL_HIGH>;
+
+		pinctrl-0 = <&spk_bottom_reset_default>, <&spk_bottom_irq_default>;
+		pinctrl-names = "default";
+
+		cirrus,boost-type = <0>;
+		cirrus,boost-peak-milliamp = <3700>;
+		cirrus,boost-ind-nanohenry = <1000>;
+		cirrus,boost-cap-microfarad = <15>;
+		cirrus,asp-sdout-hiz = <3>;
+		cirrus,gpio2-src-select = <5>;
+		cirrus,gpio2-output-enable;
+	};
 
 	/*
 	typec-mux@43 {
@@ -916,6 +961,22 @@
 		power-source = <0>;
 	};
 
+	spk_top_reset_default: spk-top-reset-default-state {
+		pins = "gpio8";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		qcom,drive-strength = <PMIC_GPIO_STRENGTH_LOW>;
+		output-high;
+		power-source = <1>;
+	};
+
+	spk_bottom_reset_default: spk-bottom-reset-default-state {
+		pins = "gpio11";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		qcom,drive-strength = <PMIC_GPIO_STRENGTH_LOW>;
+		output-high;
+		power-source = <1>;
+	};
+
 	lcd_reset_n: lcd-reset-n-state {
 		pins = "gpio9";
 		function = PMIC_GPIO_FUNC_FUNC1;
@@ -1076,6 +1137,20 @@
 		drive-strength = <2>;
 		bias-pull-up;
 		output-high;
+	};
+
+	spk_top_irq_default: spk-top-irq-default-state {
+		pins = "gpio64";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	spk_bottom_irq_default: spk-bottom-irq-default-state {
+		pins = "gpio65";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
 	};
 
 	fp_irq_default: fp-irq-default-state {
