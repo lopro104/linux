@@ -86,6 +86,13 @@ properties:
     minimum: 1
     maximum: 511
 
+  ti,open-loop:
+    description: |
+      Drive the LRA in open loop at the ti,ol-lra-period frequency
+      instead of letting the closed-loop tracker lock to resonance.
+      With an off-resonance period this gives a softer response.
+    type: boolean
+
 required:
   - compatible
   - reg

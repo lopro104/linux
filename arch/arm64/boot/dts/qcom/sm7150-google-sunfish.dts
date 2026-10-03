@@ -833,10 +833,15 @@
 		 * (~4 Vpk) chip default to ~2.8 Vpk so haptics aren't harsh. */
 		ti,od-clamp-reg = <0x60>;
 
-		/* Factory autocal + open-loop period from a real sunfish
+		/* Factory autocal from a real sunfish
 		 * /persist/haptics/drv2624.cal (shared default). */
 		ti,autocal-comp = /bits/ 8 <18 150 0>;
-		ti,ol-lra-period = <241>;
+
+		/* Open loop off resonance, as stock (ti,smart-loop = <1>,
+		 * ti,ol-lra-frequency = <155>): 1e9 / (24615 * 155) = 262.
+		 * Closed loop at f0 drives the LRA noticeably harder. */
+		ti,open-loop;
+		ti,ol-lra-period = <262>;
 
 		pinctrl-names = "default";
 		pinctrl-0 = <&haptic_en_default>;
