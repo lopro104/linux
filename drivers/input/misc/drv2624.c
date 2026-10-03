@@ -57,6 +57,7 @@
 #define   DRV2624_MODE_DIAGNOSTICS	0x03
 #define DRV2624_REG_CONTROL1		0x08
 #define   DRV2624_CTRL1_LRA		BIT(7)
+#define   DRV2624_CTRL1_OPEN_LOOP	BIT(6)
 #define   DRV2624_CTRL1_AUTO_BRK_OL	BIT(3)
 #define   DRV2624_CTRL1_AUTO_BRK_INTO_STBY  BIT(2)
 #define DRV2624_REG_GO			0x0C
@@ -143,6 +144,7 @@ struct drv2624_data {
 
 	enum drv2624_actuator actuator;
 	u32 lra_freq_hz;
+	bool open_loop;		/* drive at the OL period instead of tracking resonance */
 	u32 ol_lra_period;	/* DT-supplied per-unit factory cal; 0 = derive from freq */
 	u8 rated_volt_raw;	/* raw register value; 0 = leave at chip default */
 	u8 od_clamp_raw;	/* raw register value; 0 = leave at chip default */
@@ -358,10 +360,12 @@ static int drv2624_hw_init(struct drv2624_data *h)
 	 */
 	error = regmap_update_bits(h->regmap, DRV2624_REG_CONTROL1,
 				   DRV2624_CTRL1_LRA |
+				   DRV2624_CTRL1_OPEN_LOOP |
 				   DRV2624_CTRL1_AUTO_BRK_OL |
 				   DRV2624_CTRL1_AUTO_BRK_INTO_STBY,
 				   (h->actuator == DRV2624_ACTUATOR_LRA ?
 					DRV2624_CTRL1_LRA : 0) |
+				   (h->open_loop ? DRV2624_CTRL1_OPEN_LOOP : 0) |
 				   DRV2624_CTRL1_AUTO_BRK_OL |
 				   DRV2624_CTRL1_AUTO_BRK_INTO_STBY);
 	if (error)
@@ -531,6 +535,13 @@ static int drv2624_probe(struct i2c_client *client)
 	 * from /persist/haptics/drv2624.cal "lra_period: 241".
 	 */
 	device_property_read_u32(dev, "ti,ol-lra-period", &h->ol_lra_period);
+
+	/*
+	 * Optional open-loop drive: the LRA is driven at the OL period
+	 * rather than locked to resonance, which is softer when the OL
+	 * frequency is set off f0 (Pixel sunfish ships 155 Hz vs 172 Hz).
+	 */
+	h->open_loop = device_property_read_bool(dev, "ti,open-loop");
 
 	/*
 	 * Optional factory autocal compensation. The board's per-device
