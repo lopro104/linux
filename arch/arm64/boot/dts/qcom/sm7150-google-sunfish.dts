@@ -106,6 +106,12 @@
 		voltage-min-design-microvolt = <3300000>;
 		voltage-max-design-microvolt = <4450000>;
 		charge-full-design-microamp-hours = <3080000>;
+		/*
+		 * Approximate cell + path resistance; the downstream fuel gauge
+		 * measures ESR at runtime instead. Used to estimate the resting
+		 * voltage for the OCV lookup while charging or under load.
+		 */
+		factory-internal-resistance-micro-ohms = <150000>;
 
 		/*
 		 * OCV -> state-of-charge tables from Google's downstream ATL

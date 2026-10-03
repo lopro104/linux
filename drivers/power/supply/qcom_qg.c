@@ -100,11 +100,28 @@ static int qcom_qg_get_capacity(struct qcom_qg_chip *chip, int *val)
 	}
 
 	if (chip->batt_info->ocv_table_size[0] > 0) {
+		int ocv = voltage_now, current_avg, ri;
+
 		/* millidegC -> degC; assume room temperature if unreadable */
 		if (iio_read_channel_processed(chip->batt_therm_chan, &temp) < 0)
 			temp = 25000;
 
-		ret = power_supply_batinfo_ocv2cap(chip->batt_info, voltage_now,
+		/*
+		 * The OCV tables are for a battery at rest; under load or while
+		 * charging the terminal voltage is off by I * R_internal, which
+		 * made the reported capacity jump by 10-25%. Estimate the open
+		 * circuit voltage from the averaged current (positive while
+		 * charging) when the battery's internal resistance is known.
+		 */
+		if (!qcom_qg_get_current(chip, QG_S2_NORMAL_AVG_I_DATA0_REG,
+					 &current_avg)) {
+			ri = power_supply_vbat2ri(chip->batt_info, voltage_now,
+						  current_avg > 0);
+			if (ri > 0)
+				ocv -= div_s64((s64)current_avg * ri, 1000000);
+		}
+
+		ret = power_supply_batinfo_ocv2cap(chip->batt_info, ocv,
 						   temp / 1000);
 		if (ret >= 0) {
 			*val = clamp(ret, 0, 100);
