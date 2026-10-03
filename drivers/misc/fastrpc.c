@@ -32,6 +32,15 @@
 #define FASTRPC_MAX_SESSIONS	14
 #define FASTRPC_MAX_VMIDS	16
 #define FASTRPC_ALIGN		128
+/*
+ * Page granule of the buffer descriptors handed to the DSP. The DSP and
+ * its SMMU context banks work in 4K pages, and on kernels with larger
+ * pages (e.g. 16K) DMA buffers are only 4K-aligned in IOVA space, so
+ * rounding with the CPU PAGE_SIZE can point the DSP before the mapping.
+ */
+#define FASTRPC_PAGE_SHIFT	12
+#define FASTRPC_PAGE_SIZE	(1UL << FASTRPC_PAGE_SHIFT)
+#define FASTRPC_PAGE_MASK	(~(FASTRPC_PAGE_SIZE - 1))
 #define FASTRPC_MAX_FDLIST	16
 #define FASTRPC_MAX_CRCLIST	64
 #define FASTRPC_CTX_MAX (256)
@@ -1090,14 +1099,15 @@ static int fastrpc_get_args(u32 kernel, struct fastrpc_invoke_ctx *ctx)
 			mmap_read_lock(current->mm);
 			vma = vma_lookup(current->mm, ctx->args[i].ptr);
 			if (vma)
-				pages[i].addr += (ctx->args[i].ptr & PAGE_MASK) -
+				pages[i].addr += (ctx->args[i].ptr & FASTRPC_PAGE_MASK) -
 						 vma->vm_start;
 			mmap_read_unlock(current->mm);
 
-			pg_start = (ctx->args[i].ptr & PAGE_MASK) >> PAGE_SHIFT;
-			pg_end = ((ctx->args[i].ptr + len - 1) & PAGE_MASK) >>
-				  PAGE_SHIFT;
-			pages[i].size = (pg_end - pg_start + 1) * PAGE_SIZE;
+			pg_start = (ctx->args[i].ptr & FASTRPC_PAGE_MASK) >>
+				   FASTRPC_PAGE_SHIFT;
+			pg_end = ((ctx->args[i].ptr + len - 1) & FASTRPC_PAGE_MASK) >>
+				  FASTRPC_PAGE_SHIFT;
+			pages[i].size = (pg_end - pg_start + 1) * FASTRPC_PAGE_SIZE;
 
 		} else {
 
@@ -1115,11 +1125,13 @@ static int fastrpc_get_args(u32 kernel, struct fastrpc_invoke_ctx *ctx)
 			pages[i].addr = ctx->buf->dma_addr -
 					ctx->olaps[oix].offset +
 					(pkt_size - rlen);
-			pages[i].addr = pages[i].addr &	PAGE_MASK;
+			pages[i].addr = pages[i].addr &	FASTRPC_PAGE_MASK;
 
-			pg_start = (rpra[i].buf.pv & PAGE_MASK) >> PAGE_SHIFT;
-			pg_end = ((rpra[i].buf.pv + len - 1) & PAGE_MASK) >> PAGE_SHIFT;
-			pages[i].size = (pg_end - pg_start + 1) * PAGE_SIZE;
+			pg_start = (rpra[i].buf.pv & FASTRPC_PAGE_MASK) >>
+				   FASTRPC_PAGE_SHIFT;
+			pg_end = ((rpra[i].buf.pv + len - 1) & FASTRPC_PAGE_MASK) >>
+				 FASTRPC_PAGE_SHIFT;
+			pages[i].size = (pg_end - pg_start + 1) * FASTRPC_PAGE_SIZE;
 			args = args + mlen;
 			rlen -= mlen;
 		}
@@ -1227,7 +1239,7 @@ static int fastrpc_invoke_send(struct fastrpc_session_ctx *sctx,
 	msg->handle = handle;
 	msg->sc = ctx->sc;
 	msg->addr = ctx->buf ? ctx->buf->dma_addr : 0;
-	msg->size = roundup(ctx->msg_sz, PAGE_SIZE);
+	msg->size = roundup(ctx->msg_sz, FASTRPC_PAGE_SIZE);
 	fastrpc_context_get(ctx);
 
 	ret = rpmsg_send(cctx->rpdev->ept, (void *)msg, sizeof(*msg));
