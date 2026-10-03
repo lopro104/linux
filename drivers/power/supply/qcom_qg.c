@@ -7,6 +7,8 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
+#include <linux/ktime.h>
 #include <linux/nvmem-consumer.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
@@ -35,7 +37,17 @@ struct qcom_qg_chip {
 
 	struct power_supply *batt_psy;
 	struct power_supply_battery_info *batt_info;
+
+	/* Reported (smoothed) capacity, see qcom_qg_smooth_capacity() */
+	struct mutex soc_lock;
+	int soc;
+	ktime_t soc_time;
 };
+
+/* Battery current treated as idle (neither charging nor discharging) */
+#define QG_IDLE_CURRENT_UA	10000
+/* The reported capacity moves by at most 1% per this interval */
+#define QG_SOC_STEP_MS		20000
 
 static int qcom_qg_get_current(struct qcom_qg_chip *chip, u8 offset, int *val)
 {
@@ -92,8 +104,13 @@ static int qcom_qg_get_capacity(struct qcom_qg_chip *chip, int *val)
 	int voltage_min = chip->batt_info->voltage_min_design_uv;
 	int voltage_max = chip->batt_info->voltage_max_design_uv;
 
+	/*
+	 * Use the last ADC sample: the S2 averages only update when the gauge
+	 * completes a FIFO, which with this driver's default configuration is
+	 * rare, so they go stale for long stretches.
+	 */
 	ret = qcom_qg_get_voltage(chip,
-				QG_S2_NORMAL_AVG_V_DATA0_REG, &voltage_now);
+				QG_LAST_ADC_V_DATA0_REG, &voltage_now);
 	if (ret) {
 		dev_err(chip->dev, "Failed to get current voltage: %d\n", ret);
 		return ret;
@@ -110,10 +127,10 @@ static int qcom_qg_get_capacity(struct qcom_qg_chip *chip, int *val)
 		 * The OCV tables are for a battery at rest; under load or while
 		 * charging the terminal voltage is off by I * R_internal, which
 		 * made the reported capacity jump by 10-25%. Estimate the open
-		 * circuit voltage from the averaged current (positive while
-		 * charging) when the battery's internal resistance is known.
+		 * circuit voltage from the current (positive while charging)
+		 * when the battery's internal resistance is known.
 		 */
-		if (!qcom_qg_get_current(chip, QG_S2_NORMAL_AVG_I_DATA0_REG,
+		if (!qcom_qg_get_current(chip, QG_LAST_ADC_I_DATA0_REG,
 					 &current_avg)) {
 			ri = power_supply_vbat2ri(chip->batt_info, voltage_now,
 						  current_avg > 0);
@@ -136,6 +153,72 @@ static int qcom_qg_get_capacity(struct qcom_qg_chip *chip, int *val)
 	else
 		*val = (((voltage_now - voltage_min) * 100) /
 						(voltage_max - voltage_min));
+
+	return 0;
+}
+
+/*
+ * Like Google's battery driver does for the UI SOC: let the reported
+ * capacity follow the instantaneous estimate by at most 1% per
+ * QG_SOC_STEP_MS, never rising while discharging nor falling while
+ * charging. Steps accumulate while nobody asks (e.g. in suspend), so the
+ * value catches up afterwards.
+ */
+static int qcom_qg_smooth_capacity(struct qcom_qg_chip *chip, int raw,
+				   int current_ua)
+{
+	ktime_t now = ktime_get_boottime();
+	s64 steps;
+	int diff, soc;
+
+	guard(mutex)(&chip->soc_lock);
+
+	if (chip->soc < 0) {
+		chip->soc = raw;
+		chip->soc_time = now;
+		return raw;
+	}
+
+	steps = ktime_ms_delta(now, chip->soc_time) / QG_SOC_STEP_MS;
+	diff = raw - chip->soc;
+
+	if ((diff > 0 && current_ua < -QG_IDLE_CURRENT_UA) ||
+	    (diff < 0 && current_ua > QG_IDLE_CURRENT_UA) || !diff) {
+		/* Not allowed to move this way now: don't bank the time */
+		chip->soc_time = now;
+		return chip->soc;
+	}
+
+	if (!steps)
+		return chip->soc;
+
+	soc = chip->soc + clamp_t(s64, diff, -steps, steps);
+	chip->soc_time = ktime_add_ms(chip->soc_time,
+				      steps * QG_SOC_STEP_MS);
+	chip->soc = soc;
+
+	return soc;
+}
+
+static int qcom_qg_get_status(struct qcom_qg_chip *chip, int *val)
+{
+	int ret, current_ua, soc;
+
+	ret = qcom_qg_get_current(chip, QG_LAST_ADC_I_DATA0_REG, &current_ua);
+	if (ret)
+		return ret;
+
+	if (current_ua > QG_IDLE_CURRENT_UA) {
+		*val = POWER_SUPPLY_STATUS_CHARGING;
+	} else if (power_supply_am_i_supplied(chip->batt_psy) > 0 &&
+		   current_ua > -QG_IDLE_CURRENT_UA) {
+		scoped_guard(mutex, &chip->soc_lock)
+			soc = chip->soc;
+		*val = soc >= 100 ? POWER_SUPPLY_STATUS_FULL :
+				    POWER_SUPPLY_STATUS_NOT_CHARGING;
+	} else {
+		*val = POWER_SUPPLY_STATUS_DISCHARGING;
+	}
 
 	return 0;
 }
@@ -165,9 +248,9 @@ static int qcom_qg_get_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
-		val->intval = power_supply_am_i_supplied(psy) ?
-			POWER_SUPPLY_STATUS_CHARGING :
-			POWER_SUPPLY_STATUS_DISCHARGING;
+		ret = qcom_qg_get_status(chip, &val->intval);
+		if (ret)
+			return ret;
 		break;
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
 		val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
@@ -217,11 +300,19 @@ static int qcom_qg_get_property(struct power_supply *psy,
 			return ret;
 		val->intval *= 1000; /* mAh to uAh */
 		break;
-	case POWER_SUPPLY_PROP_CAPACITY:
-		ret = qcom_qg_get_capacity(chip, &val->intval);
+	case POWER_SUPPLY_PROP_CAPACITY: {
+		int raw, current_ua;
+
+		ret = qcom_qg_get_capacity(chip, &raw);
 		if (ret)
 			return ret;
+		ret = qcom_qg_get_current(chip, QG_LAST_ADC_I_DATA0_REG,
+					  &current_ua);
+		if (ret)
+			return ret;
+		val->intval = qcom_qg_smooth_capacity(chip, raw, current_ua);
 		break;
+	}
 	case POWER_SUPPLY_PROP_TEMP:
 		ret = iio_read_channel_processed
 					(chip->batt_therm_chan, &val->intval);
@@ -255,6 +346,10 @@ static int qcom_qg_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	chip->dev = &pdev->dev;
+	chip->soc = -1;
+	ret = devm_mutex_init(&pdev->dev, &chip->soc_lock);
+	if (ret)
+		return ret;
 
 	/* Regmap */
 	chip->regmap = dev_get_regmap(chip->dev->parent, NULL);
