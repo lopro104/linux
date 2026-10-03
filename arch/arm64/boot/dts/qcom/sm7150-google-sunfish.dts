@@ -11,8 +11,6 @@
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
-#include <dt-bindings/sound/qcom,q6afe.h>
-#include <dt-bindings/sound/qcom,q6asm.h>
 #include <dt-bindings/usb/pd.h>
 
 #include "sm7150.dtsi"
@@ -940,66 +938,4 @@
 	qcom,ath10k-calibration-variant = "google_sunfish";
 
 	status = "okay";
-};
-
-&ter_mi2s_active {
-	/* Tertiary TDM to the CS35L41 amps; 8 mA as downstream */
-	drive-strength = <8>;
-	bias-disable;
-};
-
-&q6afedai {
-	/* CS35L41 speaker amps; matches downstream tdm_tert_* settings */
-	dai@56 {
-		reg = <TERTIARY_TDM_RX_0>;
-		qcom,tdm-sync-mode = <0>;
-		qcom,tdm-sync-src = <1>;
-		qcom,tdm-data-out = <0>;
-		qcom,tdm-invert-sync = <0>;
-		qcom,tdm-data-delay = <1>;
-		qcom,tdm-data-align = <0>;
-	};
-};
-
-&q6asmdai {
-	dai@0 {
-		reg = <MSM_FRONTEND_DAI_MULTIMEDIA1>;
-	};
-};
-
-/ {
-	sound {
-		compatible = "qcom,sm7150-sndcard";
-		model = "Google Pixel 4a";
-
-		pinctrl-0 = <&ter_mi2s_active>;
-		pinctrl-names = "default";
-
-		audio-routing = "Left Spk", "L SPK",
-				"Right Spk", "R SPK";
-
-		mm1-dai-link {
-			link-name = "MultiMedia1";
-
-			cpu {
-				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA1>;
-			};
-		};
-
-		speaker-dai-link {
-			link-name = "Speaker Playback";
-
-			cpu {
-				sound-dai = <&q6afedai TERTIARY_TDM_RX_0>;
-			};
-
-			platform {
-				sound-dai = <&q6routing>;
-			};
-
-			codec {
-				sound-dai = <&speaker_top 0>, <&speaker_bottom 0>;
-			};
-		};
-	};
 };
