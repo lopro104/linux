@@ -853,7 +853,59 @@
 		pinctrl-0 = <&haptic_en_default>;
 	};
 
-	/* dlg,slg51000 pmic@75*/
+	/*
+	 * Dialog SLG51000 camera PMIC. Downstream raises the camera buck
+	 * (cam_buck), then this chip's CS pin, and holds pm6150l GPIOs 1/5
+	 * low (cam_pmic_en_hog). Rails as used by the rear IMX363.
+	 */
+	camera_pmic: pmic@75 {
+		compatible = "dlg,slg51000";
+		reg = <0x75>;
+
+		dlg,cs-gpios = <&pm6150l_gpios 4 GPIO_ACTIVE_HIGH>;
+
+		vin3-supply = <&cam_buck>;
+		vin4-supply = <&cam_buck>;
+		vin5-supply = <&cam_buck>;
+		vin6-supply = <&cam_buck>;
+		vin7-supply = <&cam_buck>;
+
+		regulators {
+			slg51000_ldo1: ldo1 {
+				regulator-name = "slg51000_ldo1";
+				regulator-min-microvolt = <2850000>;
+				regulator-max-microvolt = <2850000>;
+				/* needed for the rear IMX363 to answer on CCI (as stock) */
+				regulator-always-on;
+			};
+
+			slg51000_ldo3: ldo3 {
+				regulator-name = "slg51000_ldo3";
+				regulator-min-microvolt = <2850000>;
+				regulator-max-microvolt = <2850000>;
+			};
+
+			slg51000_ldo4: ldo4 {
+				regulator-name = "slg51000_ldo4";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <1800000>;
+				/* needed for the rear IMX363 to answer on CCI (as stock) */
+				regulator-always-on;
+			};
+
+			slg51000_ldo6: ldo6 {
+				regulator-name = "slg51000_ldo6";
+				regulator-min-microvolt = <1050000>;
+				regulator-max-microvolt = <1050000>;
+			};
+
+			slg51000_ldo7: ldo7 {
+				regulator-name = "slg51000_ldo7";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <1800000>;
+			};
+		};
+	};
 };
 
 &ipa {
@@ -1119,6 +1171,20 @@
 &tlmm {
 	gpio-reserved-ranges = <0 4>, <59 4>;
 
+	cam_mclk0_default: cam-mclk0-default-state {
+		pins = "gpio13";
+		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam_rear_reset_default: cam-rear-reset-default-state {
+		pins = "gpio43";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
 	ctdl_ap_irq_default: ctdl-ap-irq-default-state {
 		pins = "gpio4";
 		function = "gpio";
@@ -1373,5 +1439,90 @@
 				sound-dai = <&speaker_top 0>, <&speaker_bottom 0>;
 			};
 		};
+	};
+};
+
+/ {
+	/* Camera buck feeding the SLG51000; 5 ms settle as downstream */
+	cam_buck: regulator-cam-buck {
+		compatible = "regulator-fixed";
+		regulator-name = "cam_buck";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&pm6150l_gpios 6 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		startup-delay-us = <5000>;
+		/* the SLG51000 must be powered for its own I2C to work */
+		regulator-always-on;
+	};
+
+	/* Rear camera autofocus actuator supply (downstream camera_ldo) */
+	cam_vaf: regulator-cam-vaf {
+		compatible = "regulator-fixed";
+		regulator-name = "cam_vaf";
+		regulator-min-microvolt = <2850000>;
+		regulator-max-microvolt = <2850000>;
+		gpio = <&pm6150l_gpios 12 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+};
+
+&camss {
+	vdda-phy-supply = <&vreg_l3c_1p23>;
+	vdda-pll-supply = <&vreg_l4a_0p88>;
+
+	status = "okay";
+
+	ports {
+		port@0 {
+			camss_endpoint0: endpoint {
+				clock-lanes = <7>;
+				data-lanes = <0 1 2 3>;
+				remote-endpoint = <&cam_rear_endpoint>;
+			};
+		};
+	};
+};
+
+&cci0_i2c0 {
+	/* Rear camera: Sony IMX363, CSIPHY0, MCLK0 (as Pixel 3a) */
+	rear_cam: camera@1a {
+		compatible = "sony,imx363";
+		reg = <0x1a>;
+
+		clocks = <&camcc CAMCC_MCLK0_CLK>;
+		clock-names = "xvclk";
+		clock-frequency = <24000000>;
+		assigned-clocks = <&camcc CAMCC_MCLK0_CLK>;
+		assigned-clock-rates = <24000000>;
+
+		reset-gpios = <&tlmm 43 GPIO_ACTIVE_LOW>;
+
+		vana-supply = <&slg51000_ldo3>;
+		vdig-supply = <&slg51000_ldo6>;
+		vif-supply = <&slg51000_ldo7>;
+
+		pinctrl-0 = <&cam_rear_reset_default &cam_mclk0_default>;
+		pinctrl-names = "default";
+
+		rotation = <90>;
+		orientation = <1>;
+
+		port {
+			cam_rear_endpoint: endpoint {
+				data-lanes = <0 1 2 3>;
+				link-frequencies = /bits/ 64 <321000000 636000000>;
+				remote-endpoint = <&camss_endpoint0>;
+			};
+		};
+	};
+};
+
+&pm6150l_gpios {
+	cam_pmic_en_hog: cam-pmic-en-hog {
+		gpio-hog;
+		gpios = <1 GPIO_ACTIVE_HIGH>, <5 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "slg51000-en";
 	};
 };
