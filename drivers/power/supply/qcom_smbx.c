@@ -675,13 +675,12 @@ static int smb_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 		return smb_get_current_now(chip, &val->intval);
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
-		ret = smb_get_iio_chan(chip, chip->usb_in_v_chan,
-					 &val->intval);
-		if (!ret) {
-			if (chip->gen == SMB5)
-				val->intval *= 16;
-		}
-		return ret;
+		/*
+		 * The PMIC DTs give the USB_IN_V_16 ADC channel its 1/16
+		 * pre-scaling, so this is already in microvolts.
+		 */
+		return smb_get_iio_chan(chip, chip->usb_in_v_chan,
+					&val->intval);
 	case POWER_SUPPLY_PROP_ONLINE:
 		return smb_get_prop_usb_online(chip, &val->intval);
 	case POWER_SUPPLY_PROP_STATUS:
