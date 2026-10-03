@@ -144,6 +144,21 @@
 			qcom,client-id = <1>;
 			qcom,vmid = <QCOM_SCM_VMID_MSS_MSA>;
 		};
+
+		/*
+		 * rmtfs is 4K- but not 16K-aligned. With 16K pages the pages at
+		 * either end would also hold ordinary RAM, so memremap() of
+		 * rmtfs fails. Keep those slivers out of the linear map.
+		 */
+		rmtfs_pad_lo: memory@fde00000 {
+			reg = <0x0 0xfde00000 0x0 0x1000>;
+			no-map;
+		};
+
+		rmtfs_pad_hi: memory@fe401000 {
+			reg = <0x0 0xfe401000 0x0 0x3000>;
+			no-map;
+		};
 	};
 
 	vph_pwr: regulator-vph-pwr {
