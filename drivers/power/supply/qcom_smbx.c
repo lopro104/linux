@@ -1115,7 +1115,15 @@ static int smb_probe(struct platform_device *pdev)
 		return dev_err_probe(chip->dev, rc,
 				     "Failed to init status change work\n");
 
-	rc = (chip->batt_info->voltage_max_design_uv - 3487500) / 7500 + 1;
+	/*
+	 * Float voltage encoding differs: SMB2 (PMI8998) is 3.4875 V +
+	 * 7.5 mV/step, SMB5 (PM8150B/PM6150/PM7250B) is 3.6 V + 10 mV/step.
+	 * Using the SMB2 formula on SMB5 set 4.89 V for a 4.45 V cell.
+	 */
+	if (chip->gen == SMB5)
+		rc = (chip->batt_info->voltage_max_design_uv - 3600000) / 10000;
+	else
+		rc = (chip->batt_info->voltage_max_design_uv - 3487500) / 7500 + 1;
 	rc = regmap_update_bits(chip->regmap, chip->base + FLOAT_VOLTAGE_CFG,
 				FLOAT_VOLTAGE_SETTING_MASK, rc);
 	if (rc < 0)
