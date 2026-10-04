@@ -1505,7 +1505,12 @@
 		pinctrl-0 = <&cam_rear_reset_default &cam_mclk0_default>;
 		pinctrl-names = "default";
 
-		rotation = <90>;
+		/*
+		 * Verified with captured frames: the raw image must be turned
+		 * 90 degrees counter-clockwise for display (the Pixel 3a value,
+		 * 90, comes out upside down on the 4a).
+		 */
+		rotation = <270>;
 		orientation = <1>;
 
 		port {
