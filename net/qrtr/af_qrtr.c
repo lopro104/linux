@@ -428,6 +428,58 @@ static void qrtr_node_assign(struct qrtr_node *node, unsigned int nid)
  *
  * Return: 0 on success; negative error code on failure
  */
+/*
+ * Forwarding between remote processors.
+ *
+ * Remote processors (e.g. the ADSP's sensors PD) talk QMI to services on
+ * other remote processors (e.g. the modem's SAR service) through the
+ * application processor, as downstream kernels allow. Packets addressed to
+ * another remote node are queued here and sent on from process context.
+ */
+static struct sk_buff_head qrtr_fwd_queue;
+static void qrtr_fwd_work_fn(struct work_struct *work);
+static DECLARE_WORK(qrtr_fwd_work, qrtr_fwd_work_fn);
+
+static void qrtr_fwd_work_fn(struct work_struct *work)
+{
+	struct sk_buff *skb;
+
+	while ((skb = skb_dequeue(&qrtr_fwd_queue))) {
+		struct qrtr_cb *cb = (struct qrtr_cb *)skb->cb;
+		struct qrtr_hdr_v1 *hdr;
+		struct qrtr_node *node;
+		size_t len = skb->len;
+		int rc;
+
+		node = qrtr_node_lookup(cb->dst_node);
+		if (!node) {
+			kfree_skb(skb);
+			continue;
+		}
+
+		hdr = skb_push(skb, sizeof(*hdr));
+		hdr->version = cpu_to_le32(QRTR_PROTO_VER_1);
+		hdr->type = cpu_to_le32(cb->type);
+		hdr->src_node_id = cpu_to_le32(cb->src_node);
+		hdr->src_port_id = cpu_to_le32(cb->src_port);
+		hdr->dst_node_id = cpu_to_le32(cb->dst_node);
+		hdr->dst_port_id = cpu_to_le32(cb->dst_port);
+		hdr->size = cpu_to_le32(len);
+		hdr->confirm_rx = cpu_to_le32(!!cb->confirm_rx);
+
+		rc = skb_put_padto(skb, ALIGN(len, 4) + sizeof(*hdr));
+		if (!rc) {
+			mutex_lock(&node->ep_lock);
+			if (node->ep)
+				node->ep->xmit(node->ep, skb);
+			else
+				kfree_skb(skb);
+			mutex_unlock(&node->ep_lock);
+		}
+		qrtr_node_release(node);
+	}
+}
+
 int qrtr_endpoint_post(struct qrtr_endpoint *ep, const void *data, size_t len)
 {
 	struct qrtr_node *node = ep->node;
@@ -518,6 +570,14 @@ int qrtr_endpoint_post(struct qrtr_endpoint *ep, const void *data, size_t len)
 
 		pkt = data + hdrlen;
 		qrtr_node_assign(node, le32_to_cpu(pkt->server.node));
+	}
+
+	/* Addressed to another remote processor: forward it */
+	if (cb->dst_node != qrtr_local_nid && cb->dst_node != QRTR_NODE_BCAST &&
+	    cb->dst_node != cb->src_node) {
+		skb_queue_tail(&qrtr_fwd_queue, skb);
+		schedule_work(&qrtr_fwd_work);
+		return 0;
 	}
 
 	if (cb->type == QRTR_TYPE_RESUME_TX) {
@@ -1297,6 +1357,8 @@ static const struct net_proto_family qrtr_family = {
 static int __init qrtr_proto_init(void)
 {
 	int rc;
+
+	skb_queue_head_init(&qrtr_fwd_queue);
 
 	rc = proto_register(&qrtr_proto, 1);
 	if (rc)
