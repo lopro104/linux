@@ -933,10 +933,17 @@ err_unlock:
 /* Verify chip ID */
 static int imx355_identify_module(struct imx355 *imx355)
 {
-	int ret;
+	int ret, tries = 5;
 	u64 val;
 
-	ret = cci_read(imx355->regmap, IMX355_REG_CHIP_ID, &val, NULL);
+	/*
+	 * The sensor may still be coming out of power-up when its supplies
+	 * are shared with other sensors powering on at the same time, so
+	 * retry the first access a few times.
+	 */
+	while ((ret = cci_read(imx355->regmap, IMX355_REG_CHIP_ID, &val, NULL)) &&
+	       --tries)
+		usleep_range(10000, 11000);
 	if (ret)
 		return ret;
 
@@ -1011,7 +1018,7 @@ static int imx355_power_on(struct device *dev)
 		goto error_disable_clocks;
 	}
 
-	usleep_range(1000, 2000);
+	usleep_range(5000, 6000);
 	gpiod_set_value_cansleep(imx355->reset_gpio, 0);
 	usleep_range(10000, 11000);
 
