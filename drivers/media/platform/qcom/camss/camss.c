@@ -1976,8 +1976,13 @@ static const struct camss_subdev_resources csiphy_res_7150[] = {
 			{ .supply = "vdda-phy", .init_load_uA = 0 },
 			{ .supply = "vdda-pll", .init_load_uA = 0 }
 		},
-		.clock = { "csiphy1", "csiphy1_timer" },
-		.clock_rate = { { 300000000, 384000000, 400000000 },
+		/* CSIPHY0's clock also has to run for the other PHYs (as downstream) */
+		.clock = { "cphy_rx_src", "csiphy0", "csiphy1", "csiphy1_timer_src",
+			   "csiphy1_timer" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 300000000, 384000000, 400000000 },
+				{ 0 },
 				{ 300000000 } },
 		.reg = { "csiphy1" },
 		.interrupt = { "csiphy1" },
@@ -1993,8 +1998,13 @@ static const struct camss_subdev_resources csiphy_res_7150[] = {
 			{ .supply = "vdda-phy", .init_load_uA = 0 },
 			{ .supply = "vdda-pll", .init_load_uA = 0 }
 		},
-		.clock = { "csiphy2", "csiphy2_timer" },
-		.clock_rate = { { 19200000, 300000000, 384000000, 400000000 },
+		/* CSIPHY0's clock also has to run for the other PHYs (as downstream) */
+		.clock = { "cphy_rx_src", "csiphy0", "csiphy2", "csiphy2_timer_src",
+			   "csiphy2_timer" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 300000000, 384000000, 400000000 },
+				{ 0 },
 				{ 300000000 } },
 		.reg = { "csiphy2" },
 		.interrupt = { "csiphy2" },
