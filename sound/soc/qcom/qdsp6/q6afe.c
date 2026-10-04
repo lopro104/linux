@@ -512,6 +512,31 @@ struct afe_param_id_i2s_cfg {
 	u16	reserved;
 } __packed;
 
+/* TDM group device (all ports of one TDM interface share clocks/framing) */
+#define AFE_MODULE_GROUP_DEVICE			0x00010254
+#define AFE_PARAM_ID_GROUP_DEVICE_ENABLE	0x00010256
+#define AFE_PARAM_ID_GROUP_DEVICE_TDM_CONFIG	0x0001029E
+#define AFE_API_VERSION_GROUP_DEVICE_TDM_CONFIG	0x1
+#define AFE_GROUP_DEVICE_NUM_PORTS		8
+
+struct afe_param_id_group_device_tdm_cfg {
+	u32 group_device_cfg_minor_version;
+	u16 group_id;
+	u16 reserved;
+	u16 port_id[AFE_GROUP_DEVICE_NUM_PORTS];
+	u32 num_channels;
+	u32 sample_rate;
+	u32 bit_width;
+	u16 nslots_per_frame;
+	u16 slot_width;
+	u32 slot_mask;
+} __packed;
+
+struct afe_group_device_enable {
+	u16 group_id;
+	u16 enable;
+} __packed;
+
 struct afe_param_id_tdm_cfg {
 	u32	tdm_cfg_minor_version;
 	u32	num_channels;
@@ -1340,6 +1365,8 @@ EXPORT_SYMBOL_GPL(q6afe_port_set_sysclk);
  *
  * Return: Will be an negative on packet size on success.
  */
+static int q6afe_tdm_group_enable(struct q6afe_port *port, bool enable);
+
 int q6afe_port_stop(struct q6afe_port *port)
 {
 	struct afe_port_cmd_device_stop *stop;
@@ -1377,6 +1404,9 @@ int q6afe_port_stop(struct q6afe_port *port)
 	ret = afe_apr_send_pkt(afe, pkt, port, AFE_PORT_CMD_DEVICE_STOP);
 	if (ret)
 		dev_err(afe->dev, "AFE close failed %d\n", ret);
+
+	if (port->cfg_type == AFE_PARAM_ID_TDM_CONFIG)
+		q6afe_tdm_group_enable(port, false);
 
 	return ret;
 }
@@ -1732,6 +1762,48 @@ EXPORT_SYMBOL_GPL(q6afe_cdc_dma_port_prepare);
  *
  * Return: Will be an negative on packet size on success.
  */
+/*
+ * The DSP only drives a TDM interface's clocks once its group device is
+ * configured and enabled; downstream does this before starting any TDM
+ * port (msm_dai_q6_tdm_prepare). The group ID is the interface's first
+ * RX or TX port ID plus 0x100.
+ */
+static int q6afe_tdm_group_enable(struct q6afe_port *port, bool enable)
+{
+	struct afe_param_id_tdm_cfg *tdm = &port->port_cfg.tdm_cfg;
+	struct afe_param_id_group_device_tdm_cfg gcfg = { };
+	struct afe_group_device_enable gen = { };
+	u16 group_id = (port->id & ~0xe) + 0x100;
+	int ret;
+
+	if (enable) {
+		gcfg.group_device_cfg_minor_version =
+			AFE_API_VERSION_GROUP_DEVICE_TDM_CONFIG;
+		gcfg.group_id = group_id;
+		gcfg.port_id[0] = port->id;
+		/* The group describes the whole frame, as downstream sets it */
+		gcfg.num_channels = tdm->nslots_per_frame;
+		gcfg.sample_rate = tdm->sample_rate;
+		gcfg.bit_width = tdm->slot_width;
+		gcfg.nslots_per_frame = tdm->nslots_per_frame;
+		gcfg.slot_width = tdm->slot_width;
+		/* Group covers every slot of the frame (downstream: 0xffff >> (16 - slots)) */
+		gcfg.slot_mask = GENMASK(tdm->nslots_per_frame - 1, 0);
+
+		ret = q6afe_port_set_param(port, &gcfg,
+					   AFE_PARAM_ID_GROUP_DEVICE_TDM_CONFIG,
+					   AFE_MODULE_GROUP_DEVICE, sizeof(gcfg));
+		if (ret)
+			return ret;
+	}
+
+	gen.group_id = group_id;
+	gen.enable = enable;
+
+	return q6afe_port_set_param(port, &gen, AFE_PARAM_ID_GROUP_DEVICE_ENABLE,
+				    AFE_MODULE_GROUP_DEVICE, sizeof(gen));
+}
+
 int q6afe_port_start(struct q6afe_port *port)
 {
 	struct afe_port_cmd_device_start *start;
@@ -1740,6 +1812,13 @@ int q6afe_port_start(struct q6afe_port *port)
 	int ret, param_id = port->cfg_type;
 	struct apr_pkt *pkt;
 	int pkt_size;
+
+	if (param_id == AFE_PARAM_ID_TDM_CONFIG) {
+		ret = q6afe_tdm_group_enable(port, true);
+		if (ret)
+			dev_err(afe->dev, "TDM group enable for port 0x%x failed %d\n",
+				port_id, ret);
+	}
 
 	ret  = q6afe_port_set_param_v2(port, &port->port_cfg, param_id,
 				       AFE_MODULE_AUDIO_DEV_INTERFACE,
