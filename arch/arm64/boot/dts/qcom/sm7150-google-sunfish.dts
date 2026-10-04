@@ -758,7 +758,7 @@
 	/* microchip,pac1934 power-monitor@10 */
 	/*
 	 * Top (earpiece/left) and bottom (loudspeaker/right) CS35L41 smart
-	 * amps, fed by the ADSP over tertiary TDM. Values follow the
+	 * amps, fed by the ADSP over secondary TDM. Values follow the
 	 * downstream sm7150-sunfish-audio.dtsi: internal boost, IRQ routed
 	 * out on GPIO2 as push-pull active-high.
 	 */
@@ -1406,16 +1406,10 @@
 	status = "okay";
 };
 
-&ter_mi2s_active {
-	/* Tertiary TDM to the CS35L41 amps; 8 mA as downstream */
-	drive-strength = <8>;
-	bias-disable;
-};
-
 &q6afedai {
-	/* CS35L41 speaker amps; matches downstream tdm_tert_* settings */
-	dai@56 {
-		reg = <TERTIARY_TDM_RX_0>;
+	/* CS35L41 speaker amps; matches downstream sunfish tdm_sec_rx */
+	dai@40 {
+		reg = <SECONDARY_TDM_RX_0>;
 		qcom,tdm-sync-mode = <0>;
 		qcom,tdm-sync-src = <1>;
 		qcom,tdm-data-out = <0>;
@@ -1436,8 +1430,6 @@
 		compatible = "qcom,sm7150-sndcard";
 		model = "Google Pixel 4a";
 
-		pinctrl-0 = <&ter_mi2s_active>;
-		pinctrl-names = "default";
 
 		audio-routing = "Left Spk", "L SPK",
 				"Right Spk", "R SPK";
@@ -1454,7 +1446,7 @@
 			link-name = "Speaker Playback";
 
 			cpu {
-				sound-dai = <&q6afedai TERTIARY_TDM_RX_0>;
+				sound-dai = <&q6afedai SECONDARY_TDM_RX_0>;
 			};
 
 			platform {
