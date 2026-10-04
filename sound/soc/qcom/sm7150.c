@@ -17,16 +17,16 @@
 
 #define DRIVER_NAME		"sm7150"
 #define DEFAULT_SAMPLE_RATE_48K	48000
-#define TDM_SLOTS		8
+#define TDM_SLOTS		4
 #define TDM_SLOT_WIDTH		16
 #define TDM_BCLK_RATE		(DEFAULT_SAMPLE_RATE_48K * TDM_SLOTS * TDM_SLOT_WIDTH)
 
 struct sm7150_snd_data {
 	struct snd_soc_card *card;
-	unsigned int tert_tdm_clk_count;
+	unsigned int sec_tdm_clk_count;
 };
 
-static unsigned int tdm_slot_offset[TDM_SLOTS] = {0, 4, 8, 12, 16, 20, 24, 28};
+static unsigned int tdm_slot_offset[TDM_SLOTS] = {0, 2, 4, 6};
 
 /*
  * Each amp plays ASP RX1; point it at its own TDM slot so the left amp
@@ -100,7 +100,7 @@ static int sm7150_snd_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
 
 	switch (cpu_dai->id) {
-	case TERTIARY_TDM_RX_0:
+	case SECONDARY_TDM_RX_0:
 		return sm7150_tdm_snd_hw_params(substream, params);
 	default:
 		return 0;
@@ -116,10 +116,10 @@ static int sm7150_snd_startup(struct snd_pcm_substream *substream)
 	int ret, i;
 
 	switch (cpu_dai->id) {
-	case TERTIARY_TDM_RX_0:
-		if (++data->tert_tdm_clk_count == 1)
+	case SECONDARY_TDM_RX_0:
+		if (++data->sec_tdm_clk_count == 1)
 			snd_soc_dai_set_sysclk(cpu_dai,
-					       Q6AFE_LPASS_CLK_ID_TER_TDM_IBIT,
+					       Q6AFE_LPASS_CLK_ID_SEC_TDM_IBIT,
 					       TDM_BCLK_RATE,
 					       SNDRV_PCM_STREAM_PLAYBACK);
 
@@ -150,10 +150,10 @@ static void sm7150_snd_shutdown(struct snd_pcm_substream *substream)
 	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
 
 	switch (cpu_dai->id) {
-	case TERTIARY_TDM_RX_0:
-		if (--data->tert_tdm_clk_count == 0)
+	case SECONDARY_TDM_RX_0:
+		if (--data->sec_tdm_clk_count == 0)
 			snd_soc_dai_set_sysclk(cpu_dai,
-					       Q6AFE_LPASS_CLK_ID_TER_TDM_IBIT,
+					       Q6AFE_LPASS_CLK_ID_SEC_TDM_IBIT,
 					       0, SNDRV_PCM_STREAM_PLAYBACK);
 		break;
 	default:
