@@ -879,6 +879,12 @@
 				regulator-always-on;
 			};
 
+			slg51000_ldo2: ldo2 {
+				regulator-name = "slg51000_ldo2";
+				regulator-min-microvolt = <2800000>;
+				regulator-max-microvolt = <2800000>;
+			};
+
 			slg51000_ldo3: ldo3 {
 				regulator-name = "slg51000_ldo3";
 				regulator-min-microvolt = <2850000>;
@@ -891,6 +897,12 @@
 				regulator-max-microvolt = <1800000>;
 				/* needed for the rear IMX363 to answer on CCI (as stock) */
 				regulator-always-on;
+			};
+
+			slg51000_ldo5: ldo5 {
+				regulator-name = "slg51000_ldo5";
+				regulator-min-microvolt = <1200000>;
+				regulator-max-microvolt = <1200000>;
 			};
 
 			slg51000_ldo6: ldo6 {
@@ -1174,6 +1186,20 @@
 	cam_mclk0_default: cam-mclk0-default-state {
 		pins = "gpio13";
 		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam_mclk2_default: cam-mclk2-default-state {
+		pins = "gpio15";
+		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam_front_reset_default: cam-front-reset-default-state {
+		pins = "gpio68";
+		function = "gpio";
 		drive-strength = <2>;
 		bias-disable;
 	};
@@ -1481,6 +1507,13 @@
 				remote-endpoint = <&cam_rear_endpoint>;
 			};
 		};
+
+		port@2 {
+			camss_endpoint2: endpoint {
+				data-lanes = <0 1 2 3>;
+				remote-endpoint = <&cam_front_endpoint>;
+			};
+		};
 	};
 };
 
@@ -1529,5 +1562,38 @@
 		gpios = <1 GPIO_ACTIVE_HIGH>, <5 GPIO_ACTIVE_HIGH>;
 		output-low;
 		line-name = "slg51000-en";
+	};
+};
+
+&cci0_i2c1 {
+	/* Front camera: Sony IMX355, CSIPHY2, MCLK2 (as Pixel 3a) */
+	front_cam: camera@1a {
+		compatible = "sony,imx355";
+		reg = <0x1a>;
+
+		clocks = <&camcc CAMCC_MCLK2_CLK>;
+		/* 24 MHz works, 19.2 MHz has better driver support (Pixel 3a) */
+		assigned-clocks = <&camcc CAMCC_MCLK2_CLK>;
+		assigned-clock-rates = <19200000>;
+
+		reset-gpios = <&tlmm 68 GPIO_ACTIVE_LOW>;
+
+		avdd-supply = <&slg51000_ldo2>;
+		dvdd-supply = <&slg51000_ldo5>;
+		dovdd-supply = <&slg51000_ldo7>;
+
+		pinctrl-0 = <&cam_front_reset_default &cam_mclk2_default>;
+		pinctrl-names = "default";
+
+		rotation = <270>;
+		orientation = <0>;
+
+		port {
+			cam_front_endpoint: endpoint {
+				data-lanes = <1 2 3 4>;
+				link-frequencies = /bits/ 64 <360000000>;
+				remote-endpoint = <&camss_endpoint2>;
+			};
+		};
 	};
 };
