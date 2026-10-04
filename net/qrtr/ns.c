@@ -152,6 +152,26 @@ static int service_announce_new(struct sockaddr_qrtr *dest,
 	return kernel_sendmsg(qrtr_ns.sock, &msg, &iv, 1, sizeof(pkt));
 }
 
+/*
+ * Tell every other remote node about a server on a remote node, so that
+ * remote processors can reach each other's services through us (their
+ * packets are forwarded by af_qrtr).
+ */
+static void announce_to_other_nodes(struct qrtr_server *srv)
+{
+	struct sockaddr_qrtr sq = { .sq_family = AF_QIPCRTR,
+				    .sq_port = QRTR_PORT_CTRL };
+	struct qrtr_node *node;
+	unsigned long index;
+
+	xa_for_each(&nodes, index, node) {
+		if (index == qrtr_ns.local_node || index == srv->node)
+			continue;
+		sq.sq_node = index;
+		service_announce_new(&sq, srv);
+	}
+}
+
 static void service_announce_del(struct sockaddr_qrtr *dest,
 				 struct qrtr_server *srv)
 {
@@ -222,6 +242,19 @@ static int announce_servers(struct sockaddr_qrtr *sq)
 	node = node_get(qrtr_ns.local_node);
 	if (!node)
 		return 0;
+
+	/* Also announce servers of other remote nodes (reached via forwarding) */
+	{
+		struct qrtr_node *other;
+		unsigned long nidx;
+
+		xa_for_each(&nodes, nidx, other) {
+			if (nidx == qrtr_ns.local_node || nidx == sq->sq_node)
+				continue;
+			xa_for_each(&other->servers, index, srv)
+				service_announce_new(sq, srv);
+		}
+	}
 
 	/* Announce the list of servers registered in this node */
 	xa_for_each(&node->servers, index, srv) {
@@ -521,6 +554,8 @@ static int ctrl_cmd_new_server(struct sockaddr_qrtr *from,
 			pr_err("failed to announce new service\n");
 			return ret;
 		}
+	} else {
+		announce_to_other_nodes(srv);
 	}
 
 	/* Notify any potential lookups about the new server */
