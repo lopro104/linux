@@ -1510,6 +1510,7 @@
 
 		port@2 {
 			camss_endpoint2: endpoint {
+				clock-lanes = <7>;
 				data-lanes = <0 1 2 3>;
 				remote-endpoint = <&cam_front_endpoint>;
 			};
