@@ -951,6 +951,17 @@ endif
 menu "Flash devices"
 	visible if MEDIA_CAMERA_SUPPORT
 
+config VIDEO_LC898219XI
+	tristate "LC898219XI lens voice coil support"
+	depends on I2C && VIDEO_DEV
+	select MEDIA_CONTROLLER
+	select VIDEO_V4L2_SUBDEV_API
+	select V4L2_ASYNC
+	select V4L2_CCI_I2C
+	help
+	  This is a driver for the LC898219XI camera lens voice coil, used
+	  for autofocus by the rear camera of the Pixel 3a and Pixel 4a.
+
 config VIDEO_ADP1653
 	tristate "ADP1653 flash support"
 	depends on I2C && VIDEO_DEV
