@@ -1614,6 +1614,7 @@
 		 */
 		rotation = <270>;
 		orientation = <1>;
+		lens-focus = <&rear_cam_actuator>;
 
 		port {
 			cam_rear_endpoint: endpoint {
@@ -1622,6 +1623,15 @@
 				remote-endpoint = <&camss_endpoint0>;
 			};
 		};
+	};
+
+	/* Autofocus voice coil (stock actuator_rear, VAF from camera_ldo) */
+	rear_cam_actuator: actuator@72 {
+		compatible = "onnn,lc898219xi";
+		reg = <0x72>;
+		vdd-supply = <&cam_vaf>;
+		vana-supply = <&slg51000_ldo3>;
+		vio-supply = <&slg51000_ldo7>;
 	};
 };
 
