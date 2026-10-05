@@ -1430,6 +1430,8 @@
 		compatible = "qcom,sm7150-sndcard";
 		model = "Google Pixel 4a";
 
+		pinctrl-0 = <&sec_tdm_active>;
+		pinctrl-names = "default";
 
 		audio-routing = "Left Spk", "L SPK",
 				"Right Spk", "R SPK";
