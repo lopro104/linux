@@ -62,6 +62,7 @@
 		compatible = "qcom,qseecom";
 		qcom,no-clock-support;
 		qcom,qsee-reentrancy-support = <2>;
+		status = "disabled";
 	};
 
 	clocks {
