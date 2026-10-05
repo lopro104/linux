@@ -35,7 +35,7 @@
 #include <linux/workqueue.h>
 #include <linux/string.h>
 
-#include <uapi/linux/qseecom.h>
+#include <linux/qseecom.h>
 #include "qseecom_kernel.h"
 #include "qseecomi.h"
 
@@ -1526,6 +1526,22 @@ static int qseecom_receive_req(struct qseecom_dev_handle *data)
 	return ret;
 }
 
+static int qseecom_get_qseos_version(struct qseecom_dev_handle *data,
+				     void __user *argp)
+{
+	struct qseecom_qseos_version_req req;
+
+	if (copy_from_user(&req, argp, sizeof(req)))
+		return -EFAULT;
+
+	req.qseos_version = QSEOS_VERSION_14;
+
+	if (copy_to_user(argp, &req, sizeof(req)))
+		return -EFAULT;
+
+	return 0;
+}
+
 static long qseecom_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	int ret = 0;
@@ -1574,6 +1590,11 @@ static long qseecom_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		atomic_dec(&data->ioctl_count);
 		wake_up_all(&data->abort_wq);
 		mutex_unlock(&listener_access_lock);
+		break;
+	case QSEECOM_IOCTL_GET_QSEOS_VERSION_REQ:
+		atomic_inc(&data->ioctl_count);
+		ret = qseecom_get_qseos_version(data, argp);
+		atomic_dec(&data->ioctl_count);
 		break;
 	case QSEECOM_IOCTL_LOAD_APP_REQ:
 		data->type = QSEECOM_CLIENT_APP;
