@@ -1290,7 +1290,14 @@ static int fastrpc_internal_invoke(struct fastrpc_user *fl,  u32 kernel,
 		if (!wait_for_completion_timeout(&ctx->work, 10 * HZ))
 			err = -ETIMEDOUT;
 	} else {
-		err = wait_for_completion_interruptible(&ctx->work);
+		/*
+		 * Let the freezer freeze the task in place instead of waking it
+		 * with a fake signal: an interrupted invoke is restarted by
+		 * userspace as a new message while the DSP still owns the old
+		 * one, and listener calls (hexagonrpcd) crash the ADSP on resume.
+		 */
+		err = wait_for_completion_state(&ctx->work,
+						TASK_INTERRUPTIBLE | TASK_FREEZABLE);
 	}
 
 	if (err)
