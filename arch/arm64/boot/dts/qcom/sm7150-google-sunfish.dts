@@ -1159,7 +1159,14 @@
 &spi0 {
 	status = "okay";
 
-	/* realtek,rt5514 codec@0 */
+	/* RT5514P DSP side: firmware download and its mic buffer (stock mnh-spi@0) */
+	codec@0 {
+		compatible = "realtek,rt5514";
+		reg = <0>;
+		spi-max-frequency = <10000000>;
+		spi-cpol;
+		spi-cpha;
+	};
 };
 
 &spi1 {
