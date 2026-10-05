@@ -770,6 +770,168 @@ static const struct snd_soc_dapm_route rt5514_dapm_routes[] = {
 	{ "AIF1TX", NULL, "Stereo2 ADC MIX"},
 };
 
+#if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
+/*
+ * The RT5514P has no usable plain DMIC to I2S path here: the vendor driver
+ * always records through its DSP. Bring the DSP up the same way (patch,
+ * PLL3 from the RC oscillator, firmware over SPI, run) and select its I2S
+ * function, which then drives the audio interface on its own.
+ */
+#define RT5514P_DSP_FUNC	0x18002fb0
+#define RT5514P_DSP_FUNC_SUSPEND	4
+#define RT5514P_DSP_FUNC_I2S	5
+
+static const struct reg_sequence rt5514p_dsp_init[] = {
+	{0xfafafafa, 0x00000001},
+	{0x18002000, 0x000010ec},
+	{0x18002004, 0x00808f81},
+	{0x18002008, 0x00770000},
+	{0x18002f08, 0x00000006},
+	{0x18002f10, 0x00000000},
+	{0x18002f10, 0x00000001},
+	{0xfafafafa, 0x00000000},
+	{0x18001104, 0x00000007},
+	{0x18001108, 0x00000000},
+	{0x1800110c, 0x00000000},
+	{0x18001100, 0x0000031f},
+	{0x18002000, 0x000010ec},
+	/* prepare: LDO limit, pins, PLL3 = RCOSC * 31 (40 MHz), DSP clock */
+	{0x18002004, 0x00808f81},
+	{0x18002008, 0x00770000},
+	{0x18002200, 0x00028704},
+	{0x18002070, 0x00000040},
+	{0x18002240, 0x0000001e},
+	{0x18002100, 0x0000000b},
+	{0x18002f08, 0x00000005},
+	{0x18001118, 0x00000001},
+	{0x18002fcc, 0x00000001},	/* mono buffer */
+	/* DFLL */
+	{0x18002124, 0x00220012},
+	{0x18002110, 0x000104c4},
+	{0x18002124, 0x80220012},
+	{0x18002124, 0xc0220012},
+};
+
+static int rt5514p_dsp_load(struct device *dev, const char *name, u32 addr,
+			    size_t *size, u32 *head)
+{
+	const struct firmware *fw;
+	size_t len;
+	u8 *buf;
+	int ret;
+
+	ret = request_firmware(&fw, name, dev);
+	if (ret)
+		return ret;
+
+	/* SPI bursts are 8 byte multiples */
+	len = ALIGN(fw->size, 8);
+	buf = kzalloc(len, GFP_KERNEL);
+	if (!buf) {
+		release_firmware(fw);
+		return -ENOMEM;
+	}
+	memcpy(buf, fw->data, fw->size);
+	if (size)
+		*size = fw->size;
+	if (head && fw->size >= 8)
+		memcpy(head, fw->data, 8);
+	release_firmware(fw);
+
+	ret = rt5514_spi_burst_write(addr, buf, len);
+	kfree(buf);
+	return ret;
+}
+
+static int rt5514p_dsp_start(struct rt5514_priv *rt5514, struct device *dev)
+{
+	u32 head[2] = { 0, 0 }, addr3 = 0x4fe98000, addr4 = 0x4fea8000;
+	size_t size3;
+	int ret, i;
+
+	regmap_multi_reg_write(rt5514->i2c_regmap, rt5514p_dsp_init,
+			       ARRAY_SIZE(rt5514p_dsp_init));
+
+	/*
+	 * The codec's SPI is shared with the sensor hub through a switch on
+	 * codec GPIO5: drive it low so the AP owns the bus (stock
+	 * rt5514_set_gpio(5, 0)).
+	 */
+	regmap_update_bits(rt5514->i2c_regmap, 0x18002070, BIT(8), BIT(8));
+	regmap_update_bits(rt5514->i2c_regmap, 0x18002074, BIT(21) | BIT(22),
+			   BIT(22));
+
+	ret = rt5514p_dsp_load(dev, "rt5514p_dsp_fw1.bin", 0x4fe00000, NULL, head);
+	if (ret)
+		return ret;
+	ret = rt5514p_dsp_load(dev, "rt5514p_dsp_fw2.bin", 0x4ff00000, NULL, NULL);
+	if (ret)
+		return ret;
+
+	/* fw1 may say where the models go and wants to be told where fw4 went */
+	if (head[0])
+		addr3 = head[0];
+	ret = rt5514p_dsp_load(dev, "rt5514p_dsp_fw3.bin", addr3, &size3, NULL);
+	if (ret)
+		return ret;
+	if (head[0]) {
+		u32 addrs[2];
+
+		addr4 = addr3 + ((size3 / 8) + 1) * 8;
+		addrs[0] = addr3;
+		addrs[1] = addr4;
+		rt5514_spi_burst_write(0x4fe00000, (const u8 *)addrs, 8);
+	}
+	ret = rt5514p_dsp_load(dev, "rt5514p_dsp_fw4.bin", addr4, NULL, NULL);
+	if (ret)
+		return ret;
+
+	/* DSP clock = 40 MHz mux, run, then stream the mics over I2S */
+	regmap_write(rt5514->i2c_regmap, 0x18002f08, 0x0000000b);
+	regmap_write(rt5514->i2c_regmap, 0x18002f00, 0x00055148);
+	usleep_range(10000, 10500);
+	regmap_write(rt5514->i2c_regmap, RT5514P_DSP_FUNC, RT5514P_DSP_FUNC_I2S);
+
+	/* Filter power reset, which also restarts the DSP's buffer */
+	regmap_write(rt5514->i2c_regmap, 0x18001014, 1);
+	regmap_write(rt5514->i2c_regmap, 0x18002fec, 0);
+
+	/*
+	 * The DSP then sets up the audio interface itself, in PCM A; against
+	 * our TDM master that arrives a bit late (we read sign bits), as in
+	 * the plain path, so switch it to PCM B once it is configured.
+	 */
+	for (i = 0; i < 50; i++) {
+		unsigned int val;
+
+		usleep_range(10000, 10500);
+		regmap_read(rt5514->i2c_regmap, 0x18002010, &val);
+		if ((val & RT5514_I2S_DF_MASK) == RT5514_I2S_DF_PCM_A) {
+			regmap_update_bits(rt5514->i2c_regmap, 0x18002010,
+					   RT5514_I2S_DF_MASK,
+					   RT5514_I2S_DF_PCM_B);
+			break;
+		}
+	}
+
+	rt5514->dsp_i2s = true;
+	return 0;
+}
+
+static int rt5514_hw_free(struct snd_pcm_substream *substream,
+			  struct snd_soc_dai *dai)
+{
+	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(dai->component);
+
+	if (rt5514->dsp_i2s) {
+		regmap_write(rt5514->i2c_regmap, RT5514P_DSP_FUNC,
+			     RT5514P_DSP_FUNC_SUSPEND);
+		rt5514->dsp_i2s = false;
+	}
+	return 0;
+}
+#endif
+
 static int rt5514_hw_params(struct snd_pcm_substream *substream,
 	struct snd_pcm_hw_params *params, struct snd_soc_dai *dai)
 {
@@ -777,6 +939,16 @@ static int rt5514_hw_params(struct snd_pcm_substream *substream,
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
 	int pre_div, bclk_ms, frame_size;
 	unsigned int val_len = 0;
+
+#if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
+	if (rt5514->v_p) {
+		int ret = rt5514p_dsp_start(rt5514, component->dev);
+
+		if (!ret)
+			return 0;
+		dev_warn(component->dev, "DSP capture failed (%d), plain path\n", ret);
+	}
+#endif
 
 	rt5514->lrck = params_rate(params);
 	pre_div = rl6231_get_clk_info(rt5514->sysclk, rt5514->lrck);
@@ -1170,6 +1342,9 @@ static int rt5514_i2c_write(void *context, unsigned int reg, unsigned int val)
 
 static const struct snd_soc_dai_ops rt5514_aif_dai_ops = {
 	.hw_params = rt5514_hw_params,
+#if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
+	.hw_free = rt5514_hw_free,
+#endif
 	.set_fmt = rt5514_set_dai_fmt,
 	.set_sysclk = rt5514_set_dai_sysclk,
 	.set_pll = rt5514_set_dai_pll,

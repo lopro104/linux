@@ -400,6 +400,9 @@ int rt5514_spi_burst_write(u32 addr, const u8 *txbuf, size_t len)
 	u8 *write_buf;
 	unsigned int i, end, offset = 0;
 
+	if (!rt5514_spi)
+		return -ENODEV;
+
 	write_buf = kmalloc(RT5514_SPI_BUF_LEN + 6, GFP_KERNEL);
 
 	if (write_buf == NULL)

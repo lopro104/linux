@@ -292,6 +292,7 @@ struct rt5514_priv {
 	int dsp_enabled;
 	unsigned int pll3_cal_value;
 	bool v_p;	/* RT5514P: system clock PLL is PLL2 */
+	bool dsp_i2s;	/* RT5514P: capture running through the DSP */
 };
 
 #endif /* __RT5514_H__ */
