@@ -1,3 +1,5 @@
+#define SCM_SAVE_PARTITION_HASH_ID 0x01
+#define QSEOS_VERSION_14 0x14
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * QTI Secure Execution Environment Communicator (QSEECOM) driver
@@ -423,7 +425,7 @@ static int qseecom_scm_call2(uint32_t svc_id, uint32_t tz_cmd_id,
 			struct qseecom_load_app_64bit_ireq *req_64bit =
 				(struct qseecom_load_app_64bit_ireq *)req_buf;
 			smc_id = TZ_OS_LOAD_EXTERNAL_IMAGE_ID;
-			desc.arginfo = TZ_OS_LOAD_SERVICES_IMAGE_ID_PARAM_ID;
+			desc.arginfo = TZ_OS_LOAD_EXTERNAL_IMAGE_ID_PARAM_ID;
 			desc.args[0] = req_64bit->mdt_len;
 			desc.args[1] = req_64bit->img_len;
 			desc.args[2] = req_64bit->phy_addr;
@@ -433,7 +435,7 @@ static int qseecom_scm_call2(uint32_t svc_id, uint32_t tz_cmd_id,
 		}
 		case QSEOS_UNLOAD_EXTERNAL_ELF_COMMAND: {
 			smc_id = TZ_OS_UNLOAD_EXTERNAL_IMAGE_ID;
-			desc.arginfo = TZ_OS_UNLOAD_SERVICES_IMAGE_ID_PARAM_ID;
+			desc.arginfo = TZ_OS_UNLOAD_EXTERNAL_IMAGE_ID_PARAM_ID;
 			__qseecom_reentrancy_check_if_no_app_blocked(smc_id);
 			ret = __qseecom_scm_call2_locked(smc_id, &desc);
 			break;
@@ -528,7 +530,7 @@ static int qseecom_scm_call2(uint32_t svc_id, uint32_t tz_cmd_id,
 			ret = __qseecom_scm_call2_locked(smc_id, &desc);
 			break;
 		}
-		case QSEOS_CONTINUE_BLOCKED_REQUEST_COMMAND: {
+		case QSEOS_CONTINUE_BLOCKED_REQ_COMMAND: {
 			struct qseecom_continue_blocked_request_ireq *req =
 				(struct qseecom_continue_blocked_request_ireq *)req_buf;
 			smc_id = qseecom.smcinvoke_support ? 
@@ -1746,7 +1748,7 @@ exit_unreg_chrdev_region:
 	return rc;
 }
 
-static int qseecom_remove(struct platform_device *pdev)
+static void qseecom_remove(struct platform_device *pdev)
 {
 	atomic_set(&qseecom.qseecom_state, QSEECOM_STATE_NOT_READY);
 	kthread_stop(qseecom.unload_app_kthread_task);
@@ -1755,7 +1757,7 @@ static int qseecom_remove(struct platform_device *pdev)
 	device_destroy(driver_class, qseecom_device_no);
 	class_destroy(driver_class);
 	unregister_chrdev_region(qseecom_device_no, 1);
-	return 0;
+	
 }
 
 static const struct of_device_id qseecom_match[] = {
