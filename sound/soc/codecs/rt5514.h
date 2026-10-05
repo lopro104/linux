@@ -54,6 +54,8 @@
 #define RT5514_ANA_CTRL_INBUF			0x2228
 #define RT5514_ANA_CTRL_VREF			0x222c
 #define RT5514_ANA_CTRL_PLL3			0x2240
+#define RT5514_ANA_CTRL_PLL2_1			0x2250
+#define RT5514_ANA_CTRL_PLL2_2			0x2254
 #define RT5514_ANA_CTRL_PLL1_1			0x2260
 #define RT5514_ANA_CTRL_PLL1_2			0x2264
 #define RT5514_DMIC_LP_CTRL			0x2e00
@@ -79,6 +81,10 @@
 #define RT5514_POW_BG_LDO21_BIT			1
 
 /* RT5514_PWR_ANA2 (0x2008) */
+#define RT5514_POW_PLL2				(0x1 << 22)
+#define RT5514_POW_PLL2_BIT			22
+#define RT5514_POW_PLL2_LDO			(0x1 << 20)
+#define RT5514_POW_PLL2_LDO_BIT			20
 #define RT5514_POW_PLL1				(0x1 << 18)
 #define RT5514_POW_PLL1_BIT			18
 #define RT5514_POW_PLL1_LDO			(0x1 << 16)
@@ -187,6 +193,10 @@
 #define RT5514_PLL_1_SEL_SFT			12
 #define RT5514_PLL_1_SEL_SCLK			(0x3 << 12)
 #define RT5514_PLL_1_SEL_MCLK			(0x4 << 12)
+#define RT5514_PLL_2_SEL_MASK			(0x7 << 8)
+#define RT5514_PLL_2_SEL_SFT			8
+#define RT5514_PLL_2_SEL_SCLK			(0x3 << 8)
+#define RT5514_PLL_2_SEL_MCLK			(0x4 << 8)
 
 /* RT5514_CLK_CTRL1 (0x2104) */
 #define RT5514_CLK_AD_ANA1_EN			(0x1 << 31)
@@ -281,6 +291,7 @@ struct rt5514_priv {
 	int pll_out;
 	int dsp_enabled;
 	unsigned int pll3_cal_value;
+	bool v_p;	/* RT5514P: system clock PLL is PLL2 */
 };
 
 #endif /* __RT5514_H__ */
