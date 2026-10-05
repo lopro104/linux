@@ -90,16 +90,18 @@ static int lc898219xi_power_on(struct lc898219xi *lc898219xi)
 	msleep(8);
 
 	int retry;
-	for (retry = 0; retry < 10; retry++) {
-		uint32_t check = i2c_smbus_read_byte_data(client, 0xB3);
-		if ((check & 0XE0) == 0) {
+	for (retry = 0; retry < 100; retry++) {
+		int check = i2c_smbus_read_byte_data(client, 0xB3);
+		if (check >= 0 && (check & 0XE0) == 0) {
 			break;
-		} else if (retry >= 9) {
-			dev_err(&client->dev, "LSI wake up check failed");
+		} else if (retry >= 99) {
+			dev_err(&client->dev, "LSI wake up check failed: %d\n",
+				check);
 			return -1;
 		}
 		usleep_range(1000, 1010);
 	}
+	dev_dbg(&client->dev, "awake after %d ms\n", retry);
 
 	i2c_smbus_write_byte_data(client, 0x8C, 0xE9);
 
