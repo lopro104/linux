@@ -103,6 +103,8 @@ static const struct reg_default rt5514_reg[] = {
 	{RT5514_ANA_CTRL_INBUF,		0x00000143},
 	{RT5514_ANA_CTRL_VREF,		0x00008d50},
 	{RT5514_ANA_CTRL_PLL3,		0x0000000e},
+	{RT5514_ANA_CTRL_PLL2_1,	0x00000000},
+	{RT5514_ANA_CTRL_PLL2_2,	0x00030220},
 	{RT5514_ANA_CTRL_PLL1_1,	0x00000000},
 	{RT5514_ANA_CTRL_PLL1_2,	0x00030220},
 	{RT5514_DMIC_LP_CTRL,		0x00000000},
@@ -196,6 +198,8 @@ static bool rt5514_readable_register(struct device *dev, unsigned int reg)
 	case RT5514_ANA_CTRL_INBUF:
 	case RT5514_ANA_CTRL_VREF:
 	case RT5514_ANA_CTRL_PLL3:
+	case RT5514_ANA_CTRL_PLL2_1:
+	case RT5514_ANA_CTRL_PLL2_2:
 	case RT5514_ANA_CTRL_PLL1_1:
 	case RT5514_ANA_CTRL_PLL1_2:
 	case RT5514_DMIC_LP_CTRL:
@@ -254,6 +258,8 @@ static bool rt5514_i2c_readable_register(struct device *dev,
 	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_INBUF:
 	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_VREF:
 	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_PLL3:
+	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_PLL2_1:
+	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_PLL2_2:
 	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_PLL1_1:
 	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_PLL1_2:
 	case RT5514_DSP_MAPPING | RT5514_DMIC_LP_CTRL:
@@ -539,10 +545,16 @@ static int rt5514_is_sys_clk_from_pll(struct snd_soc_dapm_widget *source,
 	struct snd_soc_component *component = snd_soc_dapm_to_component(source->dapm);
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
 
-	if (rt5514->sysclk_src == RT5514_SCLK_S_PLL1)
-		return 1;
-	else
-		return 0;
+	return rt5514->sysclk_src == RT5514_SCLK_S_PLL1 && !rt5514->v_p;
+}
+
+static int rt5514_is_sys_clk_from_pll2(struct snd_soc_dapm_widget *source,
+			 struct snd_soc_dapm_widget *sink)
+{
+	struct snd_soc_component *component = snd_soc_dapm_to_component(source->dapm);
+	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
+
+	return rt5514->sysclk_src == RT5514_SCLK_S_PLL1 && rt5514->v_p;
 }
 
 static int rt5514_i2s_use_asrc(struct snd_soc_dapm_widget *source,
@@ -623,6 +635,12 @@ static const struct snd_soc_dapm_widget rt5514_dapm_widgets[] = {
 	SND_SOC_DAPM_SUPPLY("PLL1 LDO", RT5514_PWR_ANA2,
 		RT5514_POW_PLL1_LDO_BIT, 0, NULL, 0),
 	SND_SOC_DAPM_SUPPLY("PLL1", RT5514_PWR_ANA2, RT5514_POW_PLL1_BIT, 0,
+		NULL, 0),
+	SND_SOC_DAPM_SUPPLY("PLL2 LDO ENABLE", RT5514_ANA_CTRL_PLL2_2,
+		RT5514_EN_LDO_PLL1_BIT, 0, NULL, 0),
+	SND_SOC_DAPM_SUPPLY("PLL2 LDO", RT5514_PWR_ANA2,
+		RT5514_POW_PLL2_LDO_BIT, 0, NULL, 0),
+	SND_SOC_DAPM_SUPPLY("PLL2", RT5514_PWR_ANA2, RT5514_POW_PLL2_BIT, 0,
 		NULL, 0),
 	SND_SOC_DAPM_SUPPLY_S("ASRC AD1", 1, RT5514_CLK_CTRL2,
 		RT5514_CLK_AD0_ASRC_EN_BIT, 0, NULL, 0),
@@ -717,6 +735,8 @@ static const struct snd_soc_dapm_route rt5514_dapm_routes[] = {
 
 	{ "PLL1 LDO", NULL, "PLL1 LDO ENABLE" },
 	{ "PLL1", NULL, "PLL1 LDO" },
+	{ "PLL2 LDO", NULL, "PLL2 LDO ENABLE" },
+	{ "PLL2", NULL, "PLL2 LDO" },
 
 	{ "Stereo1 ADC MIXL", NULL, "Sto1 ADC MIXL" },
 	{ "Stereo1 ADC MIXR", NULL, "Sto1 ADC MIXR" },
@@ -725,6 +745,7 @@ static const struct snd_soc_dapm_route rt5514_dapm_routes[] = {
 	{ "Stereo1 ADC MIX", NULL, "Stereo1 ADC MIXR" },
 	{ "Stereo1 ADC MIX", NULL, "adc stereo1 filter" },
 	{ "adc stereo1 filter", NULL, "PLL1", rt5514_is_sys_clk_from_pll },
+	{ "adc stereo1 filter", NULL, "PLL2", rt5514_is_sys_clk_from_pll2 },
 	{ "adc stereo1 filter", NULL, "ASRC AD1", rt5514_i2s_use_asrc },
 
 	{ "Stereo2 DMIC Mux", "DMIC1", "DMIC1" },
@@ -742,6 +763,7 @@ static const struct snd_soc_dapm_route rt5514_dapm_routes[] = {
 	{ "Stereo2 ADC MIX", NULL, "Stereo2 ADC MIXR" },
 	{ "Stereo2 ADC MIX", NULL, "adc stereo2 filter" },
 	{ "adc stereo2 filter", NULL, "PLL1", rt5514_is_sys_clk_from_pll },
+	{ "adc stereo2 filter", NULL, "PLL2", rt5514_is_sys_clk_from_pll2 },
 	{ "adc stereo2 filter", NULL, "ASRC AD2", rt5514_i2s_use_asrc },
 
 	{ "AIF1TX", NULL, "Stereo1 ADC MIX"},
@@ -920,13 +942,21 @@ static int rt5514_set_dai_pll(struct snd_soc_dai *dai, int pll_id, int source,
 
 	switch (source) {
 	case RT5514_PLL1_S_MCLK:
-		regmap_update_bits(rt5514->regmap, RT5514_PLL_SOURCE_CTRL,
-			RT5514_PLL_1_SEL_MASK, RT5514_PLL_1_SEL_MCLK);
+		if (rt5514->v_p)
+			regmap_update_bits(rt5514->regmap, RT5514_PLL_SOURCE_CTRL,
+				RT5514_PLL_2_SEL_MASK, RT5514_PLL_2_SEL_MCLK);
+		else
+			regmap_update_bits(rt5514->regmap, RT5514_PLL_SOURCE_CTRL,
+				RT5514_PLL_1_SEL_MASK, RT5514_PLL_1_SEL_MCLK);
 		break;
 
 	case RT5514_PLL1_S_BCLK:
-		regmap_update_bits(rt5514->regmap, RT5514_PLL_SOURCE_CTRL,
-			RT5514_PLL_1_SEL_MASK, RT5514_PLL_1_SEL_SCLK);
+		if (rt5514->v_p)
+			regmap_update_bits(rt5514->regmap, RT5514_PLL_SOURCE_CTRL,
+				RT5514_PLL_2_SEL_MASK, RT5514_PLL_2_SEL_SCLK);
+		else
+			regmap_update_bits(rt5514->regmap, RT5514_PLL_SOURCE_CTRL,
+				RT5514_PLL_1_SEL_MASK, RT5514_PLL_1_SEL_SCLK);
 		break;
 
 	default:
@@ -944,11 +974,13 @@ static int rt5514_set_dai_pll(struct snd_soc_dai *dai, int pll_id, int source,
 		pll_code.m_bp, (pll_code.m_bp ? 0 : pll_code.m_code),
 		pll_code.n_code, pll_code.k_code);
 
-	regmap_write(rt5514->regmap, RT5514_ANA_CTRL_PLL1_1,
+	regmap_write(rt5514->regmap, rt5514->v_p ? RT5514_ANA_CTRL_PLL2_1 :
+		     RT5514_ANA_CTRL_PLL1_1,
 		pll_code.k_code << RT5514_PLL_K_SFT |
 		pll_code.n_code << RT5514_PLL_N_SFT |
 		(pll_code.m_bp ? 0 : pll_code.m_code) << RT5514_PLL_M_SFT);
-	regmap_update_bits(rt5514->regmap, RT5514_ANA_CTRL_PLL1_2,
+	regmap_update_bits(rt5514->regmap, rt5514->v_p ?
+			   RT5514_ANA_CTRL_PLL2_2 : RT5514_ANA_CTRL_PLL1_2,
 		RT5514_PLL_M_BP, pll_code.m_bp << RT5514_PLL_M_BP_SFT);
 
 	rt5514->pll_in = freq_in;
@@ -1296,6 +1328,12 @@ static int rt5514_i2c_probe(struct i2c_client *i2c)
 		dev_err(&i2c->dev,
 			"Device with ID register %x is not rt5514\n", val);
 		return -ENODEV;
+	}
+
+	/* The RT5514P reports 0x80 here and clocks its ADCs from PLL2 */
+	if (!regmap_read(rt5514->regmap, RT5514_VENDOR_ID1, &val) && val == 0x80) {
+		rt5514->v_p = true;
+		dev_info(&i2c->dev, "RT5514P\n");
 	}
 
 	ret = regmap_multi_reg_write(rt5514->i2c_regmap, rt5514_i2c_patch,
