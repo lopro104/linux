@@ -772,6 +772,7 @@
 		reg = <0x40>;
 		#sound-dai-cells = <1>;
 		sound-name-prefix = "L";
+		cirrus,subsystem-id = "sunfish";
 
 		reset-gpios = <&pm6150l_gpios 8 GPIO_ACTIVE_HIGH>;
 		interrupts-extended = <&tlmm 64 IRQ_TYPE_LEVEL_HIGH>;
@@ -793,6 +794,7 @@
 		reg = <0x41>;
 		#sound-dai-cells = <1>;
 		sound-name-prefix = "R";
+		cirrus,subsystem-id = "sunfish";
 
 		reset-gpios = <&pm6150l_gpios 11 GPIO_ACTIVE_HIGH>;
 		interrupts-extended = <&tlmm 65 IRQ_TYPE_LEVEL_HIGH>;
