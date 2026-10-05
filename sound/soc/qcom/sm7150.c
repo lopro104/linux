@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * ASoC machine driver for SM7150 boards using the APR (q6afe/q6asm/q6adm)
- * audio DSP. Currently handles the Google Pixel 4a (sunfish) loudspeakers:
- * two Cirrus CS35L41 amplifiers on the tertiary TDM bus.
+ * audio DSP. Currently handles the Google Pixel 4a (sunfish) loudspeakers,
+ * two Cirrus CS35L41 amplifiers on the secondary TDM bus, and its two
+ * digital microphones behind a Realtek RT5514 on the tertiary TDM bus.
  */
 
 #include <dt-bindings/sound/qcom,q6afe.h>
@@ -12,6 +13,7 @@
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
 #include <sound/cs35l41.h>
+#include "../codecs/rt5514.h"
 #include "common.h"
 #include "qdsp6/q6afe.h"
 
@@ -21,12 +23,21 @@
 #define TDM_SLOT_WIDTH		16
 #define TDM_BCLK_RATE		(DEFAULT_SAMPLE_RATE_48K * TDM_SLOTS * TDM_SLOT_WIDTH)
 
+/* RT5514 link, as stock: 8 x 32-bit slots, codec PLL run from BCLK */
+#define MIC_TDM_SLOTS		8
+#define MIC_TDM_SLOT_WIDTH	32
+#define MIC_TDM_BCLK_RATE	(DEFAULT_SAMPLE_RATE_48K * MIC_TDM_SLOTS * \
+				 MIC_TDM_SLOT_WIDTH)
+
 struct sm7150_snd_data {
 	struct snd_soc_card *card;
 	unsigned int sec_tdm_clk_count;
 };
 
 static unsigned int tdm_slot_offset[TDM_SLOTS] = {0, 2, 4, 6};
+
+/* Byte offsets: mic 1 (Stereo1 ADC left) in slot 0, mic 2 (Stereo2) in slot 2 */
+static unsigned int mic_slot_offset[] = {0, 8};
 
 /*
  * Each amp plays ASP RX1; point it at its own TDM slot so the left amp
@@ -93,6 +104,50 @@ static int sm7150_tdm_snd_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+static int sm7150_mic_snd_hw_params(struct snd_pcm_substream *substream,
+				    struct snd_pcm_hw_params *params)
+{
+	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
+	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
+	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
+	int ret;
+
+	ret = snd_soc_dai_set_tdm_slot(cpu_dai, 0xff, 0, MIC_TDM_SLOTS,
+				       MIC_TDM_SLOT_WIDTH);
+	if (ret < 0) {
+		dev_err(rtd->dev, "failed to set mic cpu tdm slot: %d\n", ret);
+		return ret;
+	}
+
+	ret = snd_soc_dai_set_channel_map(cpu_dai, params_channels(params),
+					  mic_slot_offset, 0, NULL);
+	if (ret < 0) {
+		dev_err(rtd->dev, "failed to set mic channel map: %d\n", ret);
+		return ret;
+	}
+
+	ret = snd_soc_dai_set_tdm_slot(codec_dai, 0x1, 0, MIC_TDM_SLOTS,
+				       MIC_TDM_SLOT_WIDTH);
+	if (ret < 0) {
+		dev_err(rtd->dev, "failed to set rt5514 tdm slot: %d\n", ret);
+		return ret;
+	}
+
+	ret = snd_soc_dai_set_pll(codec_dai, 0, RT5514_PLL1_S_BCLK,
+				  MIC_TDM_BCLK_RATE, MIC_TDM_BCLK_RATE);
+	if (ret < 0) {
+		dev_err(rtd->dev, "failed to set rt5514 pll: %d\n", ret);
+		return ret;
+	}
+
+	ret = snd_soc_dai_set_sysclk(codec_dai, RT5514_SCLK_S_PLL1,
+				     MIC_TDM_BCLK_RATE, SND_SOC_CLOCK_IN);
+	if (ret < 0)
+		dev_err(rtd->dev, "failed to set rt5514 sysclk: %d\n", ret);
+
+	return ret;
+}
+
 static int sm7150_snd_hw_params(struct snd_pcm_substream *substream,
 				struct snd_pcm_hw_params *params)
 {
@@ -102,6 +157,8 @@ static int sm7150_snd_hw_params(struct snd_pcm_substream *substream,
 	switch (cpu_dai->id) {
 	case SECONDARY_TDM_RX_0:
 		return sm7150_tdm_snd_hw_params(substream, params);
+	case TERTIARY_TDM_TX_0:
+		return sm7150_mic_snd_hw_params(substream, params);
 	default:
 		return 0;
 	}
@@ -136,6 +193,21 @@ static int sm7150_snd_startup(struct snd_pcm_substream *substream)
 			}
 		}
 		break;
+	case TERTIARY_TDM_TX_0:
+		snd_soc_dai_set_sysclk(cpu_dai, Q6AFE_LPASS_CLK_ID_TER_TDM_IBIT,
+				       MIC_TDM_BCLK_RATE,
+				       SNDRV_PCM_STREAM_CAPTURE);
+
+		/* The RT5514 follows our bit clock and frame sync */
+		codec_dai = snd_soc_rtd_to_codec(rtd, 0);
+		ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_CBC_CFC |
+					  SND_SOC_DAIFMT_NB_NF |
+					  SND_SOC_DAIFMT_DSP_A);
+		if (ret < 0) {
+			dev_err(rtd->dev, "failed to set rt5514 fmt: %d\n", ret);
+			return ret;
+		}
+		break;
 	default:
 		break;
 	}
@@ -155,6 +227,10 @@ static void sm7150_snd_shutdown(struct snd_pcm_substream *substream)
 			snd_soc_dai_set_sysclk(cpu_dai,
 					       Q6AFE_LPASS_CLK_ID_SEC_TDM_IBIT,
 					       0, SNDRV_PCM_STREAM_PLAYBACK);
+		break;
+	case TERTIARY_TDM_TX_0:
+		snd_soc_dai_set_sysclk(cpu_dai, Q6AFE_LPASS_CLK_ID_TER_TDM_IBIT,
+				       0, SNDRV_PCM_STREAM_CAPTURE);
 		break;
 	default:
 		break;
@@ -186,6 +262,8 @@ static int sm7150_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 static const struct snd_soc_dapm_widget sm7150_snd_widgets[] = {
 	SND_SOC_DAPM_SPK("Left Spk", NULL),
 	SND_SOC_DAPM_SPK("Right Spk", NULL),
+	SND_SOC_DAPM_REGULATOR_SUPPLY("mic1-ldo", 0, 0),
+	SND_SOC_DAPM_REGULATOR_SUPPLY("mic2-ldo", 0, 0),
 };
 
 static void sm7150_add_ops(struct snd_soc_card *card)

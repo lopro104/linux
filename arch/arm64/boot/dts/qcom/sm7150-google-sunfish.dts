@@ -703,6 +703,11 @@
 	codec: rt5514@57 {
 		compatible = "realtek,rt5514";
 		reg = <0x57>;
+		#sound-dai-cells = <0>;
+
+		/* reset is active low; stock just holds it released */
+		pinctrl-0 = <&rt5514_reset>;
+		pinctrl-names = "default";
 	};
 };
 
@@ -1183,6 +1188,22 @@
 &tlmm {
 	gpio-reserved-ranges = <0 4>, <59 4>;
 
+	rt5514_reset: rt5514-reset-state {
+		pins = "gpio33";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+		output-high;
+	};
+
+	/* RT5514 mic codec link (stock ter_tdm_*_active) */
+	ter_tdm_active: ter-tdm-active-state {
+		pins = "gpio53", "gpio54", "gpio55", "gpio56";
+		function = "ter_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
 	cam_mclk0_default: cam-mclk0-default-state {
 		pins = "gpio13";
 		function = "cam_mclk";
@@ -1417,6 +1438,17 @@
 		qcom,tdm-data-delay = <1>;
 		qcom,tdm-data-align = <0>;
 	};
+
+	/* RT5514 mic codec; matches downstream sunfish tdm_tert_tx */
+	dai@39 {
+		reg = <TERTIARY_TDM_TX_0>;
+		qcom,tdm-sync-mode = <0>;
+		qcom,tdm-sync-src = <1>;
+		qcom,tdm-data-out = <0>;
+		qcom,tdm-invert-sync = <0>;
+		qcom,tdm-data-delay = <1>;
+		qcom,tdm-data-align = <0>;
+	};
 };
 
 &q6asmdai {
@@ -1430,11 +1462,18 @@
 		compatible = "qcom,sm7150-sndcard";
 		model = "Google Pixel 4a";
 
-		pinctrl-0 = <&sec_tdm_active>;
+		pinctrl-0 = <&sec_tdm_active>, <&ter_tdm_active>;
 		pinctrl-names = "default";
 
+		mic1-ldo-supply = <&mic1_ldo>;
+		mic2-ldo-supply = <&mic2_ldo>;
+
 		audio-routing = "Left Spk", "L SPK",
-				"Right Spk", "R SPK";
+				"Right Spk", "R SPK",
+				"DMIC1L", "mic1-ldo",
+				"DMIC1R", "mic1-ldo",
+				"DMIC2L", "mic2-ldo",
+				"DMIC2R", "mic2-ldo";
 
 		mm1-dai-link {
 			link-name = "MultiMedia1";
@@ -1459,6 +1498,22 @@
 				sound-dai = <&speaker_top 0>, <&speaker_bottom 0>;
 			};
 		};
+
+		mic-dai-link {
+			link-name = "Mic Capture";
+
+			cpu {
+				sound-dai = <&q6afedai TERTIARY_TDM_TX_0>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&codec>;
+			};
+		};
 	};
 };
 
@@ -1474,6 +1529,25 @@
 		startup-delay-us = <5000>;
 		/* the SLG51000 must be powered for its own I2C to work */
 		regulator-always-on;
+	};
+
+	/* DMIC supplies, switched by the machine driver (stock audio_ldo1/2) */
+	mic1_ldo: regulator-mic1-ldo {
+		compatible = "regulator-fixed";
+		regulator-name = "mic1_ldo";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&pm6150_gpios 6 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	mic2_ldo: regulator-mic2-ldo {
+		compatible = "regulator-fixed";
+		regulator-name = "mic2_ldo";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&pm6150_gpios 7 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
 	};
 
 	/* Rear camera autofocus actuator supply (downstream camera_ldo) */
