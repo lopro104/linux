@@ -681,4 +681,11 @@ source "drivers/misc/mchp_pci1xxxx/Kconfig"
 source "drivers/misc/keba/Kconfig"
 source "drivers/misc/amd-sbi/Kconfig"
 source "drivers/misc/rp1/Kconfig"
+config QSEECOM
+	tristate "Qualcomm Secure Execution Environment Communicator (QSEECOM)"
+	depends on ARCH_QCOM || COMPILE_TEST
+	help
+	  Provides a communication interface between HLOS and TrustZone
+	  for Qualcomm Snapdragon platforms. Required for Keymaster and
+	  Fingerprint trustlets.
 endmenu
