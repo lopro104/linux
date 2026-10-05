@@ -26,6 +26,11 @@
 #include <dt-bindings/thermal/thermal.h>
 
 / {
+qseecom: qseecom {
+	compatible = "qcom,qseecom";
+	qcom,no-clock-support;
+	qcom,qsee-reentrancy-support = <2>;
+};
 	interrupt-parent = <&intc>;
 
 	#address-cells = <2>;
