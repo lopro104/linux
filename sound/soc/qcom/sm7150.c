@@ -198,11 +198,16 @@ static int sm7150_snd_startup(struct snd_pcm_substream *substream)
 				       MIC_TDM_BCLK_RATE,
 				       SNDRV_PCM_STREAM_CAPTURE);
 
-		/* The RT5514 follows our bit clock and frame sync */
+		/*
+		 * The RT5514 follows our bit clock and frame sync. In TDM
+		 * mode it already starts one bit after the frame sync with
+		 * its DSP_B setting; DSP_A would put it a bit late compared
+		 * with the AFE (data delay 1) and we would read sign bits.
+		 */
 		codec_dai = snd_soc_rtd_to_codec(rtd, 0);
 		ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_CBC_CFC |
 					  SND_SOC_DAIFMT_NB_NF |
-					  SND_SOC_DAIFMT_DSP_A);
+					  SND_SOC_DAIFMT_DSP_B);
 		if (ret < 0) {
 			dev_err(rtd->dev, "failed to set rt5514 fmt: %d\n", ret);
 			return ret;
