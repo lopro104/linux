@@ -4856,6 +4856,49 @@
 				};
 			};
 		};
+
+		lpass_ssc_tlmm: pinctrl@62b48000 {
+			compatible = "qcom,sm7150-lpass-ssc-lpi-pinctrl";
+			/* LPI pins 8-11 of the SSC bank; the rest belong to the ADSP */
+			reg = <0 0x62b48000 0 0x4000>;
+
+			clocks = <&q6afecc LPASS_HW_MACRO_VOTE LPASS_CLK_ATTRIBUTE_COUPLE_NO>;
+			clock-names = "core";
+
+			gpio-controller;
+			#gpio-cells = <2>;
+			gpio-ranges = <&lpass_ssc_tlmm 0 0 4>;
+
+			sec_tdm_active: sec-tdm-active-state {
+				sclk-pins {
+					pins = "gpio8";
+					function = "sec_mi2s_sclk";
+					drive-strength = <8>;
+					bias-disable;
+				};
+
+				ws-pins {
+					pins = "gpio9";
+					function = "sec_mi2s_ws";
+					drive-strength = <8>;
+					bias-disable;
+				};
+
+				data0-pins {
+					pins = "gpio10";
+					function = "sec_mi2s_data0";
+					drive-strength = <8>;
+					bias-disable;
+				};
+
+				data1-pins {
+					pins = "gpio11";
+					function = "sec_mi2s_data1";
+					drive-strength = <8>;
+					bias-disable;
+				};
+			};
+		};
 	};
 
 	thermal-zones {

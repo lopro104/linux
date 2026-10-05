@@ -31,6 +31,10 @@ enum lpass_lpi_functions {
 	LPI_MUX_swr_rx_data,
 	LPI_MUX_swr_tx_clk,
 	LPI_MUX_swr_tx_data,
+	LPI_MUX_sec_mi2s_data0,
+	LPI_MUX_sec_mi2s_data1,
+	LPI_MUX_sec_mi2s_sclk,
+	LPI_MUX_sec_mi2s_ws,
 	LPI_MUX_gpio,
 	LPI_MUX__,
 };
@@ -78,6 +82,11 @@ static const char * const swr_rx_clk_groups[] = { "gpio3" };
 static const char * const swr_rx_data_groups[] = { "gpio4", "gpio5" };
 static const char * const swr_tx_clk_groups[] = { "gpio0" };
 static const char * const swr_tx_data_groups[] = { "gpio1", "gpio2", "gpio5" };
+/* SSC bank pins (see sm7150_ssc_lpi_pins) */
+static const char * const sec_mi2s_sclk_groups[] = { "gpio8" };
+static const char * const sec_mi2s_ws_groups[] = { "gpio9" };
+static const char * const sec_mi2s_data0_groups[] = { "gpio10" };
+static const char * const sec_mi2s_data1_groups[] = { "gpio11" };
 
 static const struct lpi_pingroup sm7150_groups[] = {
 	LPI_PINGROUP(0, 0, slimbus_clk, swr_tx_clk, _, _),
@@ -118,6 +127,10 @@ static const struct lpi_function sm7150_functions[] = {
 	LPI_FUNCTION(swr_rx_data),
 	LPI_FUNCTION(swr_tx_clk),
 	LPI_FUNCTION(swr_tx_data),
+	LPI_FUNCTION(sec_mi2s_data0),
+	LPI_FUNCTION(sec_mi2s_data1),
+	LPI_FUNCTION(sec_mi2s_sclk),
+	LPI_FUNCTION(sec_mi2s_ws),
 	LPI_FUNCTION(gpio),
 };
 
@@ -131,10 +144,43 @@ static const struct lpi_pinctrl_variant_data sm7150_lpi_data = {
 	.flags = LPI_FLAG_SLEW_RATE_SAME_REG,
 };
 
+/*
+ * LPI pins 8-11 of the SSC bank, which starts 18 pins before the main LPI
+ * TLMM. The rest of that bank carries the sensor buses owned by the ADSP, so
+ * only these four are exposed: they carry the secondary MI2S/TDM interface.
+ */
+static const struct pinctrl_pin_desc sm7150_ssc_lpi_pins[] = {
+	PINCTRL_PIN(0, "gpio8"),
+	PINCTRL_PIN(1, "gpio9"),
+	PINCTRL_PIN(2, "gpio10"),
+	PINCTRL_PIN(3, "gpio11"),
+};
+
+static const struct lpi_pingroup sm7150_ssc_groups[] = {
+	LPI_PINGROUP(0, LPI_NO_SLEW, _, _, sec_mi2s_sclk, _),
+	LPI_PINGROUP(1, LPI_NO_SLEW, _, _, sec_mi2s_ws, _),
+	LPI_PINGROUP(2, LPI_NO_SLEW, _, _, _, sec_mi2s_data0),
+	LPI_PINGROUP(3, LPI_NO_SLEW, _, sec_mi2s_data1, _, _),
+};
+
+static const struct lpi_pinctrl_variant_data sm7150_ssc_lpi_data = {
+	.pins = sm7150_ssc_lpi_pins,
+	.npins = ARRAY_SIZE(sm7150_ssc_lpi_pins),
+	.groups = sm7150_ssc_groups,
+	.ngroups = ARRAY_SIZE(sm7150_ssc_groups),
+	.functions = sm7150_functions,
+	.nfunctions = ARRAY_SIZE(sm7150_functions),
+	.flags = LPI_FLAG_SLEW_RATE_SAME_REG,
+};
+
 static const struct of_device_id lpi_pinctrl_of_match[] = {
 	{
 	       .compatible = "qcom,sm7150-lpass-lpi-pinctrl",
 	       .data = &sm7150_lpi_data,
+	},
+	{
+	       .compatible = "qcom,sm7150-lpass-ssc-lpi-pinctrl",
+	       .data = &sm7150_ssc_lpi_data,
 	},
 	{ }
 };
