@@ -8,6 +8,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/err.h>
 #include <linux/interrupt.h>
+#include <linux/iopoll.h>
 #include <linux/mfd/syscon.h>
 #include <linux/of.h>
 #include <linux/of_graph.h>
@@ -1435,6 +1436,28 @@ int dsi_dma_base_get_v2(struct msm_dsi_host *msm_host, uint64_t *dma_base)
 	return 0;
 }
 
+static void dsi_wait4cmd_mdp_idle(struct msm_dsi_host *msm_host)
+{
+	u32 data;
+
+	if (msm_host->mode_flags & MIPI_DSI_MODE_VIDEO)
+		return;
+
+	if (!msm_host->power_on || !msm_host->enabled)
+		return;
+
+	/*
+	 * In command mode the MDP stream and command DMA share the link.
+	 * Triggering the DMA while a frame is still being pushed overflows
+	 * the command FIFO, so wait for the frame to finish first.
+	 */
+	if (readl_poll_timeout(msm_host->ctrl_base + REG_DSI_STATUS0, data,
+			       !(data & DSI_STATUS0_CMD_MODE_MDP_BUSY),
+			       100, 50000))
+		DRM_DEV_ERROR(&msm_host->pdev->dev,
+			      "wait for cmd mode mdp idle timed out\n");
+}
+
 static int dsi_cmd_dma_tx(struct msm_dsi_host *msm_host, int len)
 {
 	const struct msm_dsi_cfg_handler *cfg_hnd = msm_host->cfg_hnd;
@@ -1451,6 +1474,7 @@ static int dsi_cmd_dma_tx(struct msm_dsi_host *msm_host, int len)
 	reinit_completion(&msm_host->dma_comp);
 
 	dsi_wait4video_eng_busy(msm_host);
+	dsi_wait4cmd_mdp_idle(msm_host);
 
 	triggered = msm_dsi_manager_cmd_xfer_trigger(
 						msm_host->id, dma_base, len);
