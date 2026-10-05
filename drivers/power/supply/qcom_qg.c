@@ -15,6 +15,8 @@
 #include <linux/platform_device.h>
 #include <linux/power_supply.h>
 #include <linux/regmap.h>
+#include <linux/devm-helpers.h>
+#include <linux/workqueue.h>
 
 /* BATT offsets */
 #define QG_S2_NORMAL_AVG_V_DATA0_REG	0x80 /* 2-byte 0x80-0x81 */
@@ -42,12 +44,29 @@ struct qcom_qg_chip {
 	struct mutex soc_lock;
 	int soc;
 	ktime_t soc_time;
+
+	/* Coulomb counter, see qcom_qg_cc_work() */
+	struct delayed_work cc_work;
+	s64 charge_uah;		/* remaining charge, valid if cc_valid */
+	int full_uah;
+	ktime_t cc_time;
+	bool cc_valid;
 };
 
 /* Battery current treated as idle (neither charging nor discharging) */
 #define QG_IDLE_CURRENT_UA	10000
 /* The reported capacity moves by at most 1% per this interval */
 #define QG_SOC_STEP_MS		20000
+/* Coulomb counter sampling period while awake */
+#define QG_CC_PERIOD_MS		5000
+/* A longer gap between samples means we were suspended */
+#define QG_CC_SUSPEND_GAP_MS	30000
+/* After this long asleep the cell has rested: trust the OCV again */
+#define QG_CC_RESYNC_GAP_MS	(10 * 60 * 1000)
+/* Assumed battery drain while suspended */
+#define QG_CC_SLEEP_CURRENT_UA	10000
+/* Below this current the OCV estimate is good enough to correct drift */
+#define QG_CC_REST_CURRENT_UA	50000
 
 static int qcom_qg_get_current(struct qcom_qg_chip *chip, u8 offset, int *val)
 {
@@ -98,7 +117,7 @@ static int qcom_qg_get_voltage(struct qcom_qg_chip *chip, u8 offset, int *val)
  * of charge, so this is much more accurate at the low end. Otherwise fall
  * back to a linear interpolation between the design min and max voltages.
  */
-static int qcom_qg_get_capacity(struct qcom_qg_chip *chip, int *val)
+static int qcom_qg_get_ocv_capacity(struct qcom_qg_chip *chip, int *val)
 {
 	int ret, voltage_now, temp;
 	int voltage_min = chip->batt_info->voltage_min_design_uv;
@@ -154,6 +173,66 @@ static int qcom_qg_get_capacity(struct qcom_qg_chip *chip, int *val)
 		*val = (((voltage_now - voltage_min) * 100) /
 						(voltage_max - voltage_min));
 
+	return 0;
+}
+
+/*
+ * The voltage-based estimate is only right for a resting cell, so track the
+ * remaining charge by integrating the measured current while awake, the way
+ * the downstream QG driver does with the gauge's own accumulators. Start
+ * (and restart after a long suspend, once the cell has rested) from the OCV
+ * estimate, and let the count drift slowly towards that estimate whenever
+ * the battery is nearly idle so errors cannot pile up.
+ */
+static void qcom_qg_cc_work(struct work_struct *work)
+{
+	struct qcom_qg_chip *chip = container_of(to_delayed_work(work),
+						 struct qcom_qg_chip, cc_work);
+	ktime_t now = ktime_get_boottime();
+	int ocv_soc, current_ua, voltage_uv;
+	s64 dt_ms, ocv_uah;
+
+	if (qcom_qg_get_ocv_capacity(chip, &ocv_soc) ||
+	    qcom_qg_get_current(chip, QG_LAST_ADC_I_DATA0_REG, &current_ua) ||
+	    qcom_qg_get_voltage(chip, QG_LAST_ADC_V_DATA0_REG, &voltage_uv))
+		goto out;
+
+	ocv_uah = div_s64((s64)ocv_soc * chip->full_uah, 100);
+	dt_ms = ktime_ms_delta(now, chip->cc_time);
+
+	if (!chip->cc_valid || dt_ms > QG_CC_RESYNC_GAP_MS) {
+		chip->charge_uah = ocv_uah;
+		chip->cc_valid = true;
+	} else if (dt_ms > QG_CC_SUSPEND_GAP_MS) {
+		chip->charge_uah -= div_s64((s64)QG_CC_SLEEP_CURRENT_UA * dt_ms,
+					    3600000);
+	} else {
+		chip->charge_uah += div_s64((s64)current_ua * dt_ms, 3600000);
+		if (abs(current_ua) < QG_CC_REST_CURRENT_UA)
+			chip->charge_uah += div_s64(ocv_uah - chip->charge_uah,
+						    64);
+	}
+
+	/* Charge termination: supplied, at the float voltage, tiny current */
+	if (power_supply_am_i_supplied(chip->batt_psy) > 0 &&
+	    voltage_uv > chip->batt_info->voltage_max_design_uv - 50000 &&
+	    current_ua >= 0 && current_ua < QG_CC_REST_CURRENT_UA)
+		chip->charge_uah = chip->full_uah;
+
+	chip->charge_uah = clamp_t(s64, chip->charge_uah, 0, chip->full_uah);
+	chip->cc_time = now;
+out:
+	schedule_delayed_work(&chip->cc_work,
+			      msecs_to_jiffies(QG_CC_PERIOD_MS));
+}
+
+static int qcom_qg_get_capacity(struct qcom_qg_chip *chip, int *val)
+{
+	if (!chip->cc_valid)
+		return qcom_qg_get_ocv_capacity(chip, val);
+
+	*val = DIV_ROUND_CLOSEST_ULL((u64)chip->charge_uah * 100,
+				     chip->full_uah);
 	return 0;
 }
 
@@ -390,6 +469,15 @@ static int qcom_qg_probe(struct platform_device *pdev)
 	if (ret)
 		return dev_err_probe(chip->dev, ret,
 				     "Failed to get battery info\n");
+
+	chip->full_uah = chip->batt_info->charge_full_design_uah;
+	if (chip->full_uah > 0) {
+		ret = devm_delayed_work_autocancel(chip->dev, &chip->cc_work,
+						   qcom_qg_cc_work);
+		if (ret)
+			return ret;
+		schedule_delayed_work(&chip->cc_work, 0);
+	}
 
 	platform_set_drvdata(pdev, chip);
 
