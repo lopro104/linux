@@ -761,6 +761,14 @@
 	clock-frequency = <400000>;
 
 	/* microchip,pac1934 power-monitor@10 */
+
+	/* Battery info EEPROM (stock m24c08, google_bms "batt_eeprom") */
+	eeprom@50 {
+		compatible = "st,24c08", "atmel,24c08";
+		reg = <0x50>;
+		read-only;
+	};
+
 	/*
 	 * Top (earpiece/left) and bottom (loudspeaker/right) CS35L41 smart
 	 * amps, fed by the ADSP over secondary TDM. Values follow the
