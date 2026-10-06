@@ -1026,7 +1026,13 @@ int gpiochip_add_hog(struct gpio_chip *gc, struct fwnode_handle *fwnode)
 			for (unsigned int j = 0; j < cells; j++)
 				gpiospec.args[j] = gpios[i * cells + j];
 
-			ret = of_gpiochip_get_lflags(gc, &gpiospec, &lflags);
+			/*
+			 * The specifier goes through the chip's of_xlate(),
+			 * which also yields the line: it is not always the
+			 * first cell (e.g. 1-based PMIC GPIO numbers).
+			 */
+			ret = of_gpiochip_get_lflags(gc, &gpiospec, &lflags,
+						     &desc);
 			if (ret)
 				return ret;
 		} else {
@@ -1036,11 +1042,11 @@ int gpiochip_add_hog(struct gpio_chip *gc, struct fwnode_handle *fwnode)
 			 */
 			if (gpios[i * cells + 1])
 				lflags |= GPIO_ACTIVE_LOW;
-		}
 
-		desc = gpiochip_get_desc(gc, gpios[i * cells]);
-		if (IS_ERR(desc))
-			return PTR_ERR(desc);
+			desc = gpiochip_get_desc(gc, gpios[i * cells]);
+			if (IS_ERR(desc))
+				return PTR_ERR(desc);
+		}
 
 		ret = gpiod_hog(desc, name, lflags, dflags);
 		if (ret)
