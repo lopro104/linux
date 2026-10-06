@@ -241,6 +241,8 @@ static void qsee_dmac_flush_range(void *vaddr, size_t len)
 	}
 }
 
+#define QSEECOM_SMC64_MASK		0x40000000
+
 /* SMC result: the secure call was preempted and must be resumed */
 #define QSEECOM_SCM_INTERRUPTED		1
 /* SMC status: the secure world is busy, retry later (downstream SCM_V2_EBUSY) */
@@ -261,7 +263,8 @@ static int __qseecom_smc(uint32_t smc_id, struct scm_desc *desc,
 {
 	struct arm_smccc_quirk quirk = { .id = ARM_SMCCC_QUIRK_QCOM_A6 };
 	unsigned int nargs = desc->arginfo & 0xf;
-	unsigned long fn = smc_id, x5 = desc->args[3];
+	/* As scm_call2() on an ARMv8-64 TZ: use the SMC64 calling convention */
+	unsigned long fn = smc_id | QSEECOM_SMC64_MASK, x5 = desc->args[3];
 	dma_addr_t ext_dma = DMA_MAPPING_ERROR;
 	u64 *ext = NULL;
 	size_t ext_len = 0;
