@@ -508,6 +508,7 @@ static int smb_set_current_limit(struct smb_chip *chip, unsigned int val)
 static void smb_status_change_work(struct work_struct *work)
 {
 	unsigned int charger_type, current_ua;
+	union power_supply_propval val;
 	int usb_online = 0;
 	int count, rc;
 	struct smb_chip *chip;
@@ -553,6 +554,31 @@ static void smb_status_change_work(struct work_struct *work)
 		break;
 	}
 
+	/*
+	 * Like the downstream smb5 driver, let the Type-C port override the
+	 * BC1.2 result: a negotiated PD contract sets the input current
+	 * limit outright (VBUS may be above 5 V), and Rp 1.5 A / 3 A raises
+	 * it. The TCPM power supply reports both as CURRENT_MAX, 0 meaning
+	 * default Rp, where BC1.2 applies.
+	 */
+	rc = power_supply_get_property_from_supplier(chip->chg_psy,
+						     POWER_SUPPLY_PROP_CURRENT_MAX,
+						     &val);
+	if (!rc && val.intval > 0) {
+		unsigned int typec_ua = val.intval;
+
+		rc = power_supply_get_property_from_supplier(chip->chg_psy,
+							     POWER_SUPPLY_PROP_USB_TYPE,
+							     &val);
+		if (!rc && val.intval != POWER_SUPPLY_USB_TYPE_C)
+			current_ua = typec_ua;
+		else
+			current_ua = max(current_ua, typec_ua);
+	}
+	current_ua = min(current_ua, chip->current_limit_max_ua);
+
+	dev_dbg(chip->dev, "charger type %u, input current limit %u uA\n",
+		charger_type, current_ua);
 	smb_set_current_limit(chip, current_ua);
 	power_supply_changed(chip->chg_psy);
 }
@@ -773,6 +799,18 @@ static irqreturn_t smb_handle_wdog_bark(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+static void smb_external_power_changed(struct power_supply *psy)
+{
+	struct smb_chip *chip = power_supply_get_drvdata(psy);
+
+	/* Probe schedules the first run once the battery info is in */
+	if (!chip->batt_info)
+		return;
+
+	/* The Type-C/PD current limit changed, re-evaluate the ICL */
+	mod_delayed_work(system_wq, &chip->status_change_work, 0);
+}
+
 static const struct power_supply_desc smb_psy_desc = {
 	.name = "SMB2_charger",
 	.type = POWER_SUPPLY_TYPE_USB,
@@ -785,6 +823,7 @@ static const struct power_supply_desc smb_psy_desc = {
 	.get_property = smb_get_property,
 	.set_property = smb_set_property,
 	.property_is_writeable = smb_property_is_writable,
+	.external_power_changed = smb_external_power_changed,
 };
 
 /* Init sequence derived from vendor downstream driver */
@@ -1083,6 +1122,12 @@ static int smb_probe(struct platform_device *pdev)
 	if (rc < 0)
 		return rc;
 
+	rc = devm_delayed_work_autocancel(chip->dev, &chip->status_change_work,
+					  smb_status_change_work);
+	if (rc)
+		return dev_err_probe(chip->dev, rc,
+				     "Failed to init status change work\n");
+
 	supply_config.drv_data = chip;
 	supply_config.fwnode = dev_fwnode(&pdev->dev);
 
@@ -1108,12 +1153,6 @@ static int smb_probe(struct platform_device *pdev)
 				     "Failed to get battery info\n");
 	if (chip->batt_info->constant_charge_current_max_ua == -EINVAL)
 		chip->batt_info->constant_charge_current_max_ua = DCP_CURRENT_UA;
-
-	rc = devm_delayed_work_autocancel(chip->dev, &chip->status_change_work,
-					  smb_status_change_work);
-	if (rc)
-		return dev_err_probe(chip->dev, rc,
-				     "Failed to init status change work\n");
 
 	/*
 	 * Float voltage encoding differs: SMB2 (PMI8998) is 3.4875 V +

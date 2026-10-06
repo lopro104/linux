@@ -978,6 +978,8 @@
 
 &pm6150_charger {
 	monitored-battery = <&battery>;
+	/* Type-C Rp / PD contract current from the TCPM port */
+	power-supplies = <&pm6150_typec>;
 	status = "okay";
 };
 
