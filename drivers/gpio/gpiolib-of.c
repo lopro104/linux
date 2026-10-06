@@ -751,7 +751,7 @@ struct gpio_desc *of_find_gpio(struct device_node *np, const char *con_id,
 
 int of_gpiochip_get_lflags(struct gpio_chip *chip,
 			   struct fwnode_reference_args *gpiospec,
-			   unsigned long *lflags)
+			   unsigned long *lflags, struct gpio_desc **descp)
 {
 	enum of_gpio_flags xlate_flags;
 	struct of_phandle_args args;
@@ -768,6 +768,7 @@ int of_gpiochip_get_lflags(struct gpio_chip *chip,
 		return PTR_ERR(desc);
 
 	*lflags = of_convert_gpio_flags(xlate_flags);
+	*descp = desc;
 
 	return 0;
 }
