@@ -1764,6 +1764,7 @@ static const struct of_device_id qseecom_match[] = {
 	{ .compatible = "qcom,qseecom", },
 	{}
 };
+MODULE_DEVICE_TABLE(of, qseecom_match);
 
 static struct platform_driver qseecom_plat_driver = {
 	.probe = qseecom_probe,
