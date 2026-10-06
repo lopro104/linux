@@ -30,6 +30,8 @@
 #include <linux/delay.h>
 #include <linux/signal.h>
 #include <linux/dma-buf.h>
+#include <linux/dma-heap.h>
+#include <linux/of_reserved_mem.h>
 #include <linux/iosys-map.h>
 #include <linux/kthread.h>
 #include <linux/arm-smccc.h>
@@ -1682,6 +1684,152 @@ static const struct file_operations qseecom_fops = {
 		.release = qseecom_release
 };
 
+
+/*
+ * "qseecom" DMA-BUF heap: buffers shared with TrustZone (listener and app
+ * shared buffers) must come from the qseecom carveout (memory-region,
+ * no-map), like downstream's ION QSECOM heap. Buffers from the generic CMA
+ * area wedge a CPU in TZ when registered. Userspace (the libion shim)
+ * allocates here; qseecom itself is the only importer.
+ */
+struct qseecom_heap_buffer {
+	size_t len;
+	void *vaddr;
+	dma_addr_t dma;
+};
+
+static struct sg_table *qseecom_heap_map(struct dma_buf_attachment *attach,
+					 enum dma_data_direction dir)
+{
+	struct qseecom_heap_buffer *buf = attach->dmabuf->priv;
+	struct sg_table *sgt;
+
+	sgt = kzalloc(sizeof(*sgt), GFP_KERNEL);
+	if (!sgt)
+		return ERR_PTR(-ENOMEM);
+	if (sg_alloc_table(sgt, 1, GFP_KERNEL)) {
+		kfree(sgt);
+		return ERR_PTR(-ENOMEM);
+	}
+	/* no-map carveout: no struct page, only the bus/physical address */
+	sgt->sgl->length = buf->len;
+	sg_dma_address(sgt->sgl) = buf->dma;
+	sg_dma_len(sgt->sgl) = buf->len;
+
+	return sgt;
+}
+
+static void qseecom_heap_unmap(struct dma_buf_attachment *attach,
+			       struct sg_table *sgt,
+			       enum dma_data_direction dir)
+{
+	sg_free_table(sgt);
+	kfree(sgt);
+}
+
+static int qseecom_heap_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma)
+{
+	struct qseecom_heap_buffer *buf = dmabuf->priv;
+
+	return dma_mmap_coherent(qseecom.dev, vma, buf->vaddr, buf->dma,
+				 buf->len);
+}
+
+static int qseecom_heap_vmap(struct dma_buf *dmabuf, struct iosys_map *map)
+{
+	struct qseecom_heap_buffer *buf = dmabuf->priv;
+
+	iosys_map_set_vaddr(map, buf->vaddr);
+	return 0;
+}
+
+static void qseecom_heap_release(struct dma_buf *dmabuf)
+{
+	struct qseecom_heap_buffer *buf = dmabuf->priv;
+
+	dma_free_coherent(qseecom.dev, buf->len, buf->vaddr, buf->dma);
+	kfree(buf);
+}
+
+static const struct dma_buf_ops qseecom_heap_buf_ops = {
+	.map_dma_buf = qseecom_heap_map,
+	.unmap_dma_buf = qseecom_heap_unmap,
+	.mmap = qseecom_heap_mmap,
+	.vmap = qseecom_heap_vmap,
+	.release = qseecom_heap_release,
+};
+
+static struct dma_buf *qseecom_heap_allocate(struct dma_heap *heap,
+					     unsigned long len, u32 fd_flags,
+					     u64 heap_flags)
+{
+	DEFINE_DMA_BUF_EXPORT_INFO(exp_info);
+	struct qseecom_heap_buffer *buf;
+	struct dma_buf *dmabuf;
+
+	buf = kzalloc(sizeof(*buf), GFP_KERNEL);
+	if (!buf)
+		return ERR_PTR(-ENOMEM);
+
+	buf->len = PAGE_ALIGN(len);
+	buf->vaddr = dma_alloc_coherent(qseecom.dev, buf->len, &buf->dma,
+					GFP_KERNEL);
+	if (!buf->vaddr) {
+		kfree(buf);
+		return ERR_PTR(-ENOMEM);
+	}
+
+	exp_info.exp_name = "qseecom";
+	exp_info.ops = &qseecom_heap_buf_ops;
+	exp_info.size = buf->len;
+	exp_info.flags = fd_flags;
+	exp_info.priv = buf;
+
+	dmabuf = dma_buf_export(&exp_info);
+	if (IS_ERR(dmabuf)) {
+		dma_free_coherent(qseecom.dev, buf->len, buf->vaddr, buf->dma);
+		kfree(buf);
+	}
+
+	return dmabuf;
+}
+
+static const struct dma_heap_ops qseecom_heap_ops = {
+	.allocate = qseecom_heap_allocate,
+};
+
+/* Heaps can't be removed again, so register it only once per boot */
+static struct dma_heap *qseecom_heap;
+
+static int qseecom_heap_init(struct device *dev)
+{
+	struct dma_heap_export_info exp_info = {
+		.name = "qseecom",
+		.ops = &qseecom_heap_ops,
+	};
+	int ret;
+
+	if (qseecom_heap)
+		return 0;
+
+	ret = of_reserved_mem_device_init(dev);
+	if (ret) {
+		dev_warn(dev, "no qseecom memory-region (%d), not adding the heap\n",
+			 ret);
+		return 0;
+	}
+
+	qseecom_heap = dma_heap_add(&exp_info);
+	if (IS_ERR(qseecom_heap)) {
+		ret = PTR_ERR(qseecom_heap);
+		qseecom_heap = NULL;
+		of_reserved_mem_device_release(dev);
+		return ret;
+	}
+
+	return 0;
+}
+
 static int qseecom_probe(struct platform_device *pdev)
 {
 	int rc;
@@ -1727,6 +1875,9 @@ static int qseecom_probe(struct platform_device *pdev)
 	if (rc == 0) qseecom.qsee_version = resp.result;
 
 	rc = dma_set_mask(qseecom.dev, DMA_BIT_MASK(64));
+	if (rc) goto exit_del_cdev;
+
+	rc = qseecom_heap_init(qseecom.dev);
 	if (rc) goto exit_del_cdev;
 
 	qseecom.unregister_lsnr_kthread_task = kthread_run(__qseecom_unregister_listener_kthread_func, NULL, "qseecom-unreg-lsnr");
@@ -1786,6 +1937,7 @@ static void qseecom_exit(void)
 }
 
 MODULE_IMPORT_NS("DMA_BUF");
+MODULE_IMPORT_NS("DMA_BUF_HEAP");
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("QTI Secure Execution Environment Communicator");
 module_init(qseecom_init);
