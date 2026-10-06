@@ -1324,6 +1324,103 @@ req_free:
 	return ret;
 }
 
+/*
+ * QSEECOM_IOCTL_APP_LOADED_QUERY_REQ: ask TZ whether an app is loaded and
+ * attach this handle to it. Returns -EEXIST (with app_id filled in) when it
+ * is, 0 when it is not. Ported from downstream.
+ */
+static int qseecom_query_app_loaded(struct qseecom_dev_handle *data,
+				    void __user *argp)
+{
+	struct qseecom_qseos_app_load_query *query_req;
+	struct qseecom_check_app_ireq *req;
+	struct qseecom_registered_app_list *entry;
+	unsigned long flags = 0;
+	uint32_t app_arch = 0, app_id = 0;
+	bool found_app = false;
+	int32_t ret = 0;
+
+	query_req = kzalloc(sizeof(*query_req), GFP_KERNEL);
+	if (!query_req)
+		return -ENOMEM;
+
+	req = kzalloc(sizeof(*req), GFP_KERNEL);
+	if (!req) {
+		ret = -ENOMEM;
+		goto query_req_exit;
+	}
+
+	if (copy_from_user(query_req, argp, sizeof(*query_req))) {
+		ret = -EFAULT;
+		goto exit_free;
+	}
+
+	req->qsee_cmd_id = QSEOS_APP_LOOKUP_COMMAND;
+	query_req->app_name[MAX_APP_NAME_SIZE - 1] = '\0';
+	strscpy(req->app_name, query_req->app_name, MAX_APP_NAME_SIZE);
+
+	ret = __qseecom_check_app_exists(req, &app_id);
+	if (ret) {
+		pr_err("scm call to check if app is loaded failed\n");
+		goto exit_free;
+	}
+
+	if (!app_id)
+		goto exit_free;	/* not loaded */
+
+	spin_lock_irqsave(&qseecom.registered_app_list_lock, flags);
+	list_for_each_entry(entry, &qseecom.registered_app_list_head, list) {
+		if (entry->app_id == app_id) {
+			app_arch = entry->app_arch;
+			if (entry->ref_cnt == U32_MAX) {
+				spin_unlock_irqrestore(&qseecom.registered_app_list_lock,
+						       flags);
+				ret = -EINVAL;
+				goto exit_free;
+			}
+			entry->ref_cnt++;
+			found_app = true;
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&qseecom.registered_app_list_lock, flags);
+
+	data->client.app_id = app_id;
+	data->client.app_arch = app_arch;
+	query_req->app_id = app_id;
+	query_req->app_arch = app_arch;
+	strscpy(data->client.app_name, query_req->app_name, MAX_APP_NAME_SIZE);
+
+	/* Loaded earlier (e.g. by the bootloader) but not registered yet */
+	if (!found_app) {
+		entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+		if (!entry) {
+			ret = -ENOMEM;
+			goto exit_free;
+		}
+		entry->app_id = app_id;
+		entry->ref_cnt = 1;
+		entry->app_arch = data->client.app_arch;
+		strscpy(entry->app_name, data->client.app_name, MAX_APP_NAME_SIZE);
+		spin_lock_irqsave(&qseecom.registered_app_list_lock, flags);
+		list_add_tail(&entry->list, &qseecom.registered_app_list_head);
+		spin_unlock_irqrestore(&qseecom.registered_app_list_lock, flags);
+	}
+
+	if (copy_to_user(argp, query_req, sizeof(*query_req))) {
+		ret = -EFAULT;
+		goto exit_free;
+	}
+	ret = -EEXIST;	/* app already loaded */
+
+exit_free:
+	kfree(req);
+query_req_exit:
+	kfree(query_req);
+
+	return ret;
+}
+
 static int __qseecom_cleanup_app(struct qseecom_dev_handle *data)
 {
 	int ret = 1;
@@ -1564,6 +1661,185 @@ static int qseecom_send_cmd(struct qseecom_dev_handle *data, void __user *argp)
 	return __qseecom_send_cmd(data, &req);
 }
 
+#define QSEECOM_MAX_SG_ENTRY	4096
+
+static uintptr_t __qseecom_uvirt_to_kvirt(struct qseecom_dev_handle *data,
+					  unsigned long virt)
+{
+	return (uintptr_t)data->client.sb_virt +
+		(virt - data->client.user_virt_sb_base);
+}
+
+/*
+ * Check that patching @size bytes at ifd_data[i].cmd_buf_offset stays in the
+ * command and doesn't overlap another fd's field.
+ */
+static int __boundary_checks_offset(struct qseecom_send_modfd_cmd_req *req,
+				    int i, size_t size)
+{
+	char *curr_field, *temp_field;
+	int j;
+
+	if (req->cmd_req_len < size ||
+	    req->ifd_data[i].cmd_buf_offset > req->cmd_req_len - size)
+		return -EINVAL;
+
+	curr_field = (char *)req->cmd_req_buf + req->ifd_data[i].cmd_buf_offset;
+	for (j = 0; j < MAX_ION_FD; j++) {
+		if (req->ifd_data[j].fd <= 0 || i == j)
+			continue;
+		temp_field = (char *)req->cmd_req_buf +
+			     req->ifd_data[j].cmd_buf_offset;
+		if (temp_field >= curr_field && temp_field < curr_field + size)
+			return -EINVAL;
+	}
+
+	return 0;
+}
+
+/*
+ * Patch the physical addresses of the dma-bufs passed in ifd_data into the
+ * client app command (or clear them again on @cleanup), as downstream's
+ * __qseecom_update_cmd_buf() does for client apps.
+ */
+static int __qseecom_update_cmd_buf(struct qseecom_send_modfd_cmd_req *req,
+				    bool cleanup,
+				    struct qseecom_dev_handle *data)
+{
+	struct dma_buf_attachment *attach = NULL;
+	struct dma_buf *dmabuf = NULL;
+	struct sg_table *sg_ptr = NULL;
+	struct scatterlist *sg;
+	int i, j, ret = 0;
+	char *field;
+
+	if (data->type != QSEECOM_CLIENT_APP)
+		return -EFAULT;
+	if (data->client.app_arch != ELFCLASS32 &&
+	    data->client.app_arch != ELFCLASS64) {
+		pr_err("QSEE app arch %u is not supported\n",
+		       data->client.app_arch);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < MAX_ION_FD; i++) {
+		if (req->ifd_data[i].fd <= 0)
+			continue;
+		field = (char *)req->cmd_req_buf + req->ifd_data[i].cmd_buf_offset;
+
+		ret = qseecom_dmabuf_map(req->ifd_data[i].fd, &sg_ptr, &attach,
+					 &dmabuf);
+		if (ret)
+			return ret;
+		if (sg_ptr->nents == 0 || sg_ptr->nents > QSEECOM_MAX_SG_ENTRY) {
+			ret = -EINVAL;
+			goto err;
+		}
+
+		sg = sg_ptr->sgl;
+		if (sg_ptr->nents == 1) {
+			if (__boundary_checks_offset(req, i, sizeof(uint32_t))) {
+				ret = -EINVAL;
+				goto err;
+			}
+			if (!cleanup &&
+			    (u64)sg_dma_address(sg) >= PHY_ADDR_4G - sg->length) {
+				pr_err("App %s buffer above 4G\n",
+				       data->client.app_name);
+				ret = -EINVAL;
+				goto err;
+			}
+			*(uint32_t *)field = cleanup ? 0 :
+				(uint32_t)sg_dma_address(sg);
+		} else {
+			struct qseecom_sg_entry *update =
+				(struct qseecom_sg_entry *)field;
+
+			if (__boundary_checks_offset(req, i,
+					SG_ENTRY_SZ * sg_ptr->nents)) {
+				ret = -EINVAL;
+				goto err;
+			}
+			for (j = 0; j < sg_ptr->nents; j++) {
+				if (!cleanup &&
+				    (u64)sg_dma_address(sg) >= PHY_ADDR_4G - sg->length) {
+					ret = -EINVAL;
+					goto err;
+				}
+				update->phys_addr = cleanup ? 0 :
+					(uint32_t)sg_dma_address(sg);
+				update->len = cleanup ? 0 : sg->length;
+				update++;
+				sg = sg_next(sg);
+			}
+		}
+
+		ret = qseecom_dmabuf_cache_operations(dmabuf, cleanup ?
+				QSEECOM_CACHE_INVALIDATE : QSEECOM_CACHE_CLEAN);
+		if (ret)
+			goto err;
+
+		if (!cleanup) {
+			data->sglistinfo_ptr[i].indexAndFlags =
+				SGLISTINFO_SET_INDEX_FLAG((sg_ptr->nents == 1), 0,
+					req->ifd_data[i].cmd_buf_offset);
+			data->sglistinfo_ptr[i].sizeOrCount =
+				sg_ptr->nents == 1 ? sg_ptr->sgl->length :
+						     sg_ptr->nents;
+			data->sglist_cnt = i + 1;
+		}
+
+		qseecom_dmabuf_unmap(sg_ptr, attach, dmabuf);
+		MAKE_NULL(sg_ptr, attach, dmabuf);
+	}
+
+	return 0;
+
+err:
+	qseecom_dmabuf_unmap(sg_ptr, attach, dmabuf);
+	return ret;
+}
+
+/* QSEECOM_IOCTL_SEND_MODFD_CMD_REQ, ported from downstream */
+static int qseecom_send_modfd_cmd(struct qseecom_dev_handle *data,
+				  void __user *argp)
+{
+	struct qseecom_send_modfd_cmd_req req;
+	struct qseecom_send_cmd_req send_cmd_req;
+	int i, ret;
+
+	if (copy_from_user(&req, argp, sizeof(req)))
+		return -EFAULT;
+
+	send_cmd_req.cmd_req_buf = req.cmd_req_buf;
+	send_cmd_req.cmd_req_len = req.cmd_req_len;
+	send_cmd_req.resp_buf = req.resp_buf;
+	send_cmd_req.resp_len = req.resp_len;
+
+	if (__validate_send_cmd_inputs(data, &send_cmd_req))
+		return -EINVAL;
+
+	for (i = 0; i < MAX_ION_FD; i++) {
+		if (req.ifd_data[i].cmd_buf_offset >= req.cmd_req_len)
+			return -EINVAL;
+	}
+
+	/* The fields to patch live in the kernel mapping of the shared buffer */
+	req.cmd_req_buf = (void *)__qseecom_uvirt_to_kvirt(data,
+					(uintptr_t)req.cmd_req_buf);
+	req.resp_buf = (void *)__qseecom_uvirt_to_kvirt(data,
+					(uintptr_t)req.resp_buf);
+
+	ret = __qseecom_update_cmd_buf(&req, false, data);
+	if (ret)
+		return ret;
+	ret = __qseecom_send_cmd(data, &send_cmd_req);
+	if (ret)
+		return ret;
+
+	return __qseecom_update_cmd_buf(&req, true, data);
+}
+
 static int qseecom_receive_req(struct qseecom_dev_handle *data)
 {
 	int ret = 0;
@@ -1642,6 +1918,16 @@ static long qseecom_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		wake_up_all(&data->abort_wq);
 		mutex_unlock(&app_access_lock);
 		break;
+	case QSEECOM_IOCTL_SEND_MODFD_CMD_REQ:
+		if (!data->client.app_id || data->type != QSEECOM_CLIENT_APP)
+			return -EINVAL;
+		mutex_lock(&app_access_lock);
+		atomic_inc(&data->ioctl_count);
+		ret = qseecom_send_modfd_cmd(data, argp);
+		atomic_dec(&data->ioctl_count);
+		wake_up_all(&data->abort_wq);
+		mutex_unlock(&app_access_lock);
+		break;
 	case QSEECOM_IOCTL_RECEIVE_REQ:
 		atomic_inc(&data->ioctl_count);
 		ret = qseecom_receive_req(data);
@@ -1667,6 +1953,17 @@ static long qseecom_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		mutex_lock(&app_access_lock);
 		atomic_inc(&data->ioctl_count);
 		ret = qseecom_load_app(data, argp);
+		atomic_dec(&data->ioctl_count);
+		mutex_unlock(&app_access_lock);
+		break;
+	case QSEECOM_IOCTL_APP_LOADED_QUERY_REQ:
+		if (data->type != QSEECOM_GENERIC &&
+		    data->type != QSEECOM_CLIENT_APP)
+			return -EINVAL;
+		data->type = QSEECOM_CLIENT_APP;
+		mutex_lock(&app_access_lock);
+		atomic_inc(&data->ioctl_count);
+		ret = qseecom_query_app_loaded(data, argp);
 		atomic_dec(&data->ioctl_count);
 		mutex_unlock(&app_access_lock);
 		break;
