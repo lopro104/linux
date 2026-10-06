@@ -1476,6 +1476,14 @@ static int qseecom_unload_app(struct qseecom_dev_handle *data, bool app_crash)
 
 	if (!data) return -EINVAL;
 
+	/*
+	 * As downstream: never unload keymaster. The bootloader loads it and
+	 * there may be no image to load it again (clients like the FPC HAL
+	 * open and close a handle to it).
+	 */
+	if (!memcmp(data->client.app_name, "keymaste", strlen("keymaste")))
+		goto unload_exit;
+
 	__qseecom_cleanup_app(data);
 	__qseecom_reentrancy_check_if_no_app_blocked(TZ_OS_APP_SHUTDOWN_ID);
 
