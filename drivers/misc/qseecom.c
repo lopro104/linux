@@ -1785,7 +1785,7 @@ static void qseecom_exit(void)
 	platform_driver_unregister(&qseecom_plat_driver);
 }
 
-MODULE_IMPORT_NS(DMA_BUF);
+MODULE_IMPORT_NS("DMA_BUF");
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("QTI Secure Execution Environment Communicator");
 module_init(qseecom_init);
