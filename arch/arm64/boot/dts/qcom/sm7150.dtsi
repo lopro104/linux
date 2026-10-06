@@ -62,6 +62,7 @@
 		compatible = "qcom,qseecom";
 		qcom,no-clock-support;
 		qcom,qsee-reentrancy-support = <2>;
+		status = "disabled";
 	};
 
 	clocks {
@@ -992,7 +993,8 @@
 
 			dma-coherent;
 
-			};
+			status = "disabled";
+		};
 
 		qupv3_id_0: geniqup@8c0000 {
 			compatible = "qcom,geni-se-qup";
@@ -1011,7 +1013,8 @@
 			#size-cells = <2>;
 			ranges;
 
-	
+			status = "disabled";
+
 			i2c0: i2c@880000 {
 				compatible = "qcom,geni-i2c";
 				reg = <0x0 0x00880000 0x0 0x4000>;
@@ -1045,7 +1048,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			spi0: spi@880000 {
 				compatible = "qcom,geni-spi";
@@ -1081,7 +1085,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			i2c1: i2c@884000 {
 				compatible = "qcom,geni-i2c";
@@ -1116,7 +1121,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			spi1: spi@884000 {
 				compatible = "qcom,geni-spi";
@@ -1152,7 +1158,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			i2c2: i2c@888000 {
 				compatible = "qcom,geni-i2c";
@@ -1187,7 +1194,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			i2c3: i2c@88c000 {
 				compatible = "qcom,geni-i2c";
@@ -1222,7 +1230,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			spi3: spi@88c000 {
 				compatible = "qcom,geni-spi";
@@ -1258,7 +1267,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			uart3: serial@88c000 {
 				compatible = "qcom,geni-uart";
@@ -1282,7 +1292,8 @@
 				pinctrl-0 = <&qup_uart3_default>;
 				pinctrl-names = "default";
 
-					};
+				status = "disabled";
+			};
 
 			i2c4: i2c@890000 {
 				compatible = "qcom,geni-i2c";
@@ -1317,7 +1328,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			spi4: spi@890000 {
 				compatible = "qcom,geni-spi";
@@ -1353,7 +1365,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			uart4: serial@890000 {
 				compatible = "qcom,geni-uart";
@@ -1377,7 +1390,8 @@
 				pinctrl-names = "default";
 				pinctrl-0 = <&qup_uart4_default>;
 
-					};
+				status = "disabled";
+			};
 		};
 
 		gpi_dma1: dma-controller@a00000 {
@@ -1402,7 +1416,8 @@
 
 			dma-coherent;
 
-			};
+			status = "disabled";
+		};
 
 		qupv3_id_1: geniqup@ac0000 {
 			compatible = "qcom,geni-se-qup";
@@ -1421,7 +1436,8 @@
 			#size-cells = <2>;
 			ranges;
 
-	
+			status = "disabled";
+
 			i2c6: i2c@a80000 {
 				compatible = "qcom,geni-i2c";
 				reg = <0x0 0x00a80000 0x0 0x4000>;
@@ -1455,7 +1471,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			spi6: spi@a80000 {
 				compatible = "qcom,geni-spi";
@@ -1491,7 +1508,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			i2c7: i2c@a84000 {
 				compatible = "qcom,geni-i2c";
@@ -1526,7 +1544,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			spi7: spi@a84000 {
 				compatible = "qcom,geni-spi";
@@ -1562,7 +1581,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			i2c8: i2c@a88000 {
 				compatible = "qcom,geni-i2c";
@@ -1597,7 +1617,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			spi8: spi@a88000 {
 				compatible = "qcom,geni-spi";
@@ -1633,7 +1654,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			uart8: serial@a88000 {
 				compatible = "qcom,geni-debug-uart";
@@ -1657,7 +1679,8 @@
 				pinctrl-0 = <&qup_uart8_default>;
 				pinctrl-names = "default";
 
-					};
+				status = "disabled";
+			};
 
 			i2c9: i2c@a8c000 {
 				compatible = "qcom,geni-i2c";
@@ -1692,7 +1715,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			i2c10: i2c@a90000 {
 				compatible = "qcom,geni-i2c";
@@ -1727,7 +1751,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			spi10: spi@a90000 {
 				compatible = "qcom,geni-spi";
@@ -1763,7 +1788,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			uart10: serial@a90000 {
 				compatible = "qcom,geni-uart";
@@ -1787,7 +1813,8 @@
 				pinctrl-0 = <&qup_uart10_default>;
 				pinctrl-names = "default";
 
-					};
+				status = "disabled";
+			};
 
 			i2c11: i2c@a94000 {
 				compatible = "qcom,geni-i2c";
@@ -1822,7 +1849,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			spi11: spi@a94000 {
 				compatible = "qcom,geni-spi";
@@ -1858,7 +1886,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			uart11: serial@a94000 {
 				compatible = "qcom,geni-uart";
@@ -1882,7 +1911,8 @@
 				pinctrl-0 = <&qup_uart11_default>;
 				pinctrl-names = "default";
 
-					};
+				status = "disabled";
+			};
 		};
 
 		refgen: regulator@ff1000 {
@@ -2000,7 +2030,8 @@
 
 			#reset-cells = <1>;
 
-	
+			status = "disabled";
+
 			ufs_opp_table: opp-table {
 				compatible = "operating-points-v2";
 
@@ -2069,7 +2100,8 @@
 			#clock-cells = <1>;
 			#phy-cells = <0>;
 
-			};
+			status = "disabled";
+		};
 
 		ice: crypto@1d90000 {
 			compatible = "qcom,sm7150-inline-crypto-engine",
@@ -2118,7 +2150,8 @@
 			qcom,smem-state-names = "ipa-clock-enabled-valid",
 						"ipa-clock-enabled";
 
-			};
+			status = "disabled";
+		};
 
 		tcsr_mutex: hwlock@1f40000 {
 			compatible = "qcom,tcsr-mutex";
@@ -2540,7 +2573,8 @@
 			qcom,smem-states = <&smp2p_adsp_out 0>;
 			qcom,smem-state-names = "stop";
 
-	
+			status = "disabled";
+
 			remoteproc_adsp_glink: glink-edge {
 				interrupts = <GIC_SPI 170 IRQ_TYPE_EDGE_RISING>;
 
@@ -2715,7 +2749,8 @@
 			qcom,smem-states = <&smp2p_cdsp_out 0>;
 			qcom,smem-state-names = "stop";
 
-	
+			status = "disabled";
+
 			glink-edge {
 				interrupts = <GIC_SPI 574 IRQ_TYPE_EDGE_RISING>;
 				label = "cdsp";
@@ -2820,7 +2855,8 @@
 			qcom,smem-states = <&smp2p_modem_out 0>;
 			qcom,smem-state-names = "stop";
 
-	
+			status = "disabled";
+
 			glink-edge {
 				interrupts = <GIC_SPI 449 IRQ_TYPE_EDGE_RISING>;
 				label = "modem";
@@ -3066,7 +3102,8 @@
 			mmc-hs400-1_8v;
 			mmc-hs400-enhanced-strobe;
 
-	
+			status = "disabled";
+
 			sdhc1_opp_table: opp-table {
 				compatible = "operating-points-v2";
 
@@ -3120,7 +3157,8 @@
 			qcom,dll-config = <0x0007642c>;
 			qcom,ddr-config = <0x80040868>;
 
-	
+			status = "disabled";
+
 			sdhc2_opp_table: opp-table {
 				compatible = "operating-points-v2";
 
@@ -3161,7 +3199,8 @@
 
 			#phy-cells = <0>;
 
-			};
+			status = "disabled";
+		};
 
 		usb_1_qmpphy: phy@88e8000 {
 			compatible = "qcom,sm7150-qmp-usb3-dp-phy";
@@ -3185,7 +3224,8 @@
 			#clock-cells = <1>;
 			#phy-cells = <1>;
 
-	
+			status = "disabled";
+
 			ports {
 				#address-cells = <1>;
 				#size-cells = <0>;
@@ -3389,7 +3429,8 @@
 			ranges;
 			dma-ranges;
 
-	
+			status = "disabled";
+
 			usb_1_dwc3: usb@a600000 {
 				compatible = "snps,dwc3";
 				reg = <0x0 0x0a600000 0x0 0xe000>;
@@ -3458,7 +3499,8 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 
-	
+			status = "disabled";
+
 			cci0_i2c0: i2c-bus@0 {
 				reg = <0>;
 				clock-frequency = <1000000>;
@@ -3502,7 +3544,8 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 
-	
+			status = "disabled";
+
 			cci1_i2c0: i2c-bus@0 {
 				reg = <0>;
 				clock-frequency = <1000000>;
@@ -3554,7 +3597,8 @@
 
 			iommus = <&apps_smmu 0x1080 0x60>;
 
-	
+			status = "disabled";
+
 			video-decoder {
 				compatible = "venus-decoder";
 			};
@@ -3853,7 +3897,8 @@
 					     "cam_sf_0_mnoc",
 					     "cam_sf_icp_mnoc";
 
-	
+			status = "disabled";
+
 			ports {
 				#address-cells = <1>;
 				#size-cells = <0>;
@@ -3930,7 +3975,8 @@
 			#size-cells = <2>;
 			ranges;
 
-	
+			status = "disabled";
+
 			mdp: display-controller@ae01000 {
 				compatible = "qcom,sm7150-dpu";
 				reg = <0x0 0x0ae01000 0x0 0x8f000>,
@@ -4042,7 +4088,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-		
+				status = "disabled";
+
 				ports {
 					#address-cells = <1>;
 					#size-cells = <0>;
@@ -4079,7 +4126,8 @@
 				#clock-cells = <1>;
 				#phy-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 
 			mdss_dsi1: dsi@ae96000 {
 				compatible = "qcom,sm7150-dsi-ctrl",
@@ -4119,7 +4167,8 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-		
+				status = "disabled";
+
 				ports {
 					#address-cells = <1>;
 					#size-cells = <0>;
@@ -4156,7 +4205,8 @@
 				#clock-cells = <1>;
 				#phy-cells = <0>;
 
-					};
+				status = "disabled";
+			};
 		};
 
 		dispcc: clock-controller@af00000 {
@@ -4438,7 +4488,8 @@
 
 				frame-number = <1>;
 
-					};
+				status = "disabled";
+			};
 
 			frame@17c25000 {
 				reg = <0x17c25000 0x1000>;
@@ -4447,7 +4498,8 @@
 
 				frame-number = <2>;
 
-					};
+				status = "disabled";
+			};
 
 			frame@17c27000 {
 				reg = <0x17c27000 0x1000>;
@@ -4456,7 +4508,8 @@
 
 				frame-number = <3>;
 
-					};
+				status = "disabled";
+			};
 
 			frame@17c29000 {
 				reg = <0x17c29000 0x1000>;
@@ -4465,7 +4518,8 @@
 
 				frame-number = <4>;
 
-					};
+				status = "disabled";
+			};
 
 			frame@17c2b000 {
 				reg = <0x17c2b000 0x1000>;
@@ -4474,7 +4528,8 @@
 
 				frame-number = <5>;
 
-					};
+				status = "disabled";
+			};
 
 			frame@17c2d000 {
 				reg = <0x17c2d000 0x1000>;
@@ -4483,7 +4538,8 @@
 
 				frame-number = <6>;
 
-					};
+				status = "disabled";
+			};
 		};
 
 		apps_rsc: rsc@18200000 {
@@ -4631,7 +4687,8 @@
 
 			memory-region = <&wlan_msa_mem>;
 
-			};
+			status = "disabled";
+		};
 
 		lpass_tlmm: pinctrl@62b52000 {
 			compatible = "qcom,sm7150-lpass-lpi-pinctrl";
