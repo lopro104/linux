@@ -243,6 +243,8 @@ static void qsee_dmac_flush_range(void *vaddr, size_t len)
 
 /* SMC result: the secure call was preempted and must be resumed */
 #define QSEECOM_SCM_INTERRUPTED		1
+/* SMC status: the secure world is busy, retry later (downstream SCM_V2_EBUSY) */
+#define QSEECOM_SCM_V2_EBUSY		-12
 
 /*
  * Issue a QSEE SMC and resume it while TZ reports it as interrupted, like
@@ -313,18 +315,22 @@ static int __qseecom_scm_call2_locked(uint32_t smc_id, struct scm_desc *desc)
 		if (__qseecom_smc(smc_id, desc, &res))
 			return -ENOMEM;
 
-		desc->ret[0] = res.a0;
-		desc->ret[1] = res.a1;
-		desc->ret[2] = res.a2;
+		/*
+		 * As scm_call2(): x0 is the call status, the QSEE response
+		 * (result, resp_type, data) comes back in x1..x3.
+		 */
+		desc->ret[0] = res.a1;
+		desc->ret[1] = res.a2;
+		desc->ret[2] = res.a3;
 
-		if ((int)res.a0 == -EBUSY) {
+		if ((int)res.a0 == QSEECOM_SCM_V2_EBUSY) {
 			mutex_unlock(&app_access_lock);
 			msleep(QSEECOM_SCM_EBUSY_WAIT_MS);
 			mutex_lock(&app_access_lock);
 		}
 		if (retry_count == 33)
 			pr_warn("secure world has been busy for 1 second!\n");
-	} while ((int)res.a0 == -EBUSY &&
+	} while ((int)res.a0 == QSEECOM_SCM_V2_EBUSY &&
 			(retry_count++ < QSEECOM_SCM_EBUSY_MAX_RETRY));
 
 	return (int)res.a0;
