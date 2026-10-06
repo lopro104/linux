@@ -1267,7 +1267,14 @@
 };
 
 &qseecom {
+	/* TZ shared buffers (the "qseecom" dma-heap), as downstream's ION heap */
+	memory-region = <&qseecom_mem>;
 	status = "okay";
+};
+
+/* A no-map coherent DMA pool, as downstream (qseecom_region) */
+&qseecom_mem {
+	compatible = "shared-dma-pool";
 };
 
 &qupv3_id_0 {
