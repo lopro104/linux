@@ -20,6 +20,7 @@
 #include <linux/of.h>
 #include <linux/power_supply.h>
 #include <linux/regmap.h>
+#include <linux/thermal.h>
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
@@ -237,6 +238,8 @@ struct smb_init_register {
  * @usb_in_i_chan:	USB_IN current measurement channel
  * @usb_in_v_chan:	USB_IN voltage measurement channel
  * @chg_psy:		Charger power supply instance
+ * @user_suspend:	USB input suspended through the STATUS property
+ * @thermal_state:	Cooling state, 1 = USB input suspended (port overheat)
  */
 struct smb_chip {
 	struct device *dev;
@@ -256,6 +259,9 @@ struct smb_chip {
 	struct iio_channel *usb_in_v_chan;
 
 	struct power_supply *chg_psy;
+
+	bool user_suspend;
+	unsigned long thermal_state;
 };
 
 struct smb_match_data {
@@ -735,6 +741,59 @@ static int smb_get_property(struct power_supply *psy,
 	}
 }
 
+static int smb_update_usbin_suspend(struct smb_chip *chip)
+{
+	bool suspend = chip->user_suspend || chip->thermal_state;
+
+	return regmap_update_bits(chip->regmap, chip->base + USBIN_CMD_IL,
+				  USBIN_SUSPEND_BIT,
+				  suspend ? USBIN_SUSPEND_BIT : 0);
+}
+
+/*
+ * USB port overheat mitigation, like downstream Google's
+ * overheat_mitigation: a thermal zone on the USB-C connector thermistor
+ * can suspend the USB input until the port has cooled down.
+ */
+static int smb_cooling_get_max_state(struct thermal_cooling_device *cdev,
+				     unsigned long *state)
+{
+	*state = 1;
+	return 0;
+}
+
+static int smb_cooling_get_cur_state(struct thermal_cooling_device *cdev,
+				     unsigned long *state)
+{
+	struct smb_chip *chip = cdev->devdata;
+
+	*state = chip->thermal_state;
+	return 0;
+}
+
+static int smb_cooling_set_cur_state(struct thermal_cooling_device *cdev,
+				     unsigned long state)
+{
+	struct smb_chip *chip = cdev->devdata;
+
+	if (state > 1)
+		return -EINVAL;
+	if (state == chip->thermal_state)
+		return 0;
+
+	chip->thermal_state = state;
+	dev_warn(chip->dev, "USB input %s (port temperature)\n",
+		 state ? "suspended" : "resumed");
+
+	return smb_update_usbin_suspend(chip);
+}
+
+static const struct thermal_cooling_device_ops smb_cooling_ops = {
+	.get_max_state = smb_cooling_get_max_state,
+	.get_cur_state = smb_cooling_get_cur_state,
+	.set_cur_state = smb_cooling_set_cur_state,
+};
+
 static int smb_set_property(struct power_supply *psy,
 			     enum power_supply_property psp,
 			     const union power_supply_propval *val)
@@ -743,8 +802,8 @@ static int smb_set_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
-		return regmap_update_bits(chip->regmap, chip->base + USBIN_CMD_IL,
-					  USBIN_SUSPEND_BIT, !val->intval);
+		chip->user_suspend = !val->intval;
+		return smb_update_usbin_suspend(chip);
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
 		return smb_set_current_limit(chip, val->intval);
 	default:
@@ -1199,6 +1258,17 @@ static int smb_probe(struct platform_device *pdev)
 	rc = smb_init_irq(chip, &irq, "wdog-bark", smb_handle_wdog_bark);
 	if (rc < 0)
 		return rc;
+
+	if (of_property_present(chip->dev->of_node, "#cooling-cells")) {
+		struct thermal_cooling_device *cdev;
+
+		cdev = devm_thermal_of_cooling_device_register(chip->dev, 0,
+							       "smb-usbin", chip,
+							       &smb_cooling_ops);
+		if (IS_ERR(cdev))
+			return dev_err_probe(chip->dev, PTR_ERR(cdev),
+					     "Couldn't register cooling device\n");
+	}
 
 	devm_device_init_wakeup(chip->dev);
 
