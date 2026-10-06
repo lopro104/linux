@@ -4,6 +4,7 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/qcom_geni_spi.h>
 
+#include <linux/bitfield.h>
 #include <linux/clk.h>
 #include <linux/dmaengine.h>
 #include <linux/dma-mapping.h>
@@ -86,6 +87,7 @@ struct spi_geni_master {
 	u32 tx_wm;
 	u32 last_mode;
 	u8 last_cs;
+	u32 last_cs_clk_delay;
 	unsigned long cur_speed_hz;
 	unsigned long cur_sclk_hz;
 	unsigned int cur_bits_per_word;
@@ -347,6 +349,25 @@ static int geni_spi_set_clock_and_bw(struct spi_geni_master *mas,
 	return 0;
 }
 
+/*
+ * The SE inserts the CS-assert-to-first-clock delay itself, counted in
+ * serial clock cycles, so the core's software cs_setup delay is useless
+ * here: CS only goes active once the transfer command is issued.
+ * Convert the device's cs_setup into cycles at its maximum speed.
+ */
+static u32 spi_geni_cs_clk_delay(struct spi_device *spi_slv)
+{
+	int ns = spi_delay_to_ns(&spi_slv->cs_setup, NULL);
+	u64 cycles;
+
+	if (ns <= 0 || !spi_slv->max_speed_hz)
+		return 0;
+
+	cycles = DIV_ROUND_UP_ULL((u64)ns * spi_slv->max_speed_hz, NSEC_PER_SEC);
+
+	return min_t(u64, cycles, FIELD_MAX(SPI_CS_CLK_DELAY_MSK));
+}
+
 static int setup_fifo_params(struct spi_device *spi_slv,
 					struct spi_controller *spi)
 {
@@ -355,6 +376,7 @@ static int setup_fifo_params(struct spi_device *spi_slv,
 	u8 chipselect = spi_get_chipselect(spi_slv, 0);
 	bool cs_changed = (mas->last_cs != chipselect);
 	u32 mode_changed = mas->last_mode ^ spi_slv->mode;
+	u32 cs_clk_delay = spi_geni_cs_clk_delay(spi_slv);
 
 	mas->last_cs = chipselect;
 	mas->last_mode = spi_slv->mode;
@@ -371,6 +393,11 @@ static int setup_fifo_params(struct spi_device *spi_slv,
 		writel((spi_slv->mode & SPI_CPOL) ? CPOL : 0, se->base + SE_SPI_CPOL);
 	if ((mode_changed & SPI_CS_HIGH) || (cs_changed && (spi_slv->mode & SPI_CS_HIGH)))
 		writel((spi_slv->mode & SPI_CS_HIGH) ? BIT(chipselect) : 0, se->base + SE_SPI_DEMUX_OUTPUT_INV);
+	if (cs_changed || cs_clk_delay != mas->last_cs_clk_delay) {
+		writel(FIELD_PREP(SPI_CS_CLK_DELAY_MSK, cs_clk_delay),
+		       se->base + SE_SPI_DELAY_COUNTERS);
+		mas->last_cs_clk_delay = cs_clk_delay;
+	}
 
 	trace_geni_spi_setup_params(mas->dev, chipselect, spi_slv->mode,
 				    mode_changed, cs_changed);
