@@ -976,6 +976,55 @@
 	status = "okay";
 };
 
+&pm6150_adc {
+	/* Board thermistors, 100k pull-up; labels as downstream */
+	channel@4e {
+		reg = <ADC5_AMUX_THM2_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		label = "rf_pa0_therm";
+	};
+
+	channel@4f {
+		reg = <ADC5_AMUX_THM3_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		label = "rf_pa1_therm";
+	};
+
+	channel@50 {
+		reg = <ADC5_AMUX_THM4_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		label = "quiet_therm";
+	};
+};
+
+&pm6150_adc_tm {
+	status = "okay";
+
+	rf-front-thermistor@0 {
+		reg = <0>;
+		io-channels = <&pm6150_adc ADC5_AMUX_THM2_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time-us = <200>;
+	};
+
+	rf-back-thermistor@1 {
+		reg = <1>;
+		io-channels = <&pm6150_adc ADC5_AMUX_THM3_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time-us = <200>;
+	};
+
+	rf-thermistor@2 {
+		reg = <2>;
+		io-channels = <&pm6150_adc ADC5_AMUX_THM4_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time-us = <200>;
+	};
+};
+
 &pm6150_charger {
 	monitored-battery = <&battery>;
 	/* Type-C Rp / PD contract current from the TCPM port */
@@ -1055,6 +1104,72 @@
 	status = "okay";
 };
 
+&pm6150l_adc {
+	pinctrl-0 = <&skin_therm_default>;
+	pinctrl-names = "default";
+
+	channel@4d {
+		reg = <ADC5_AMUX_THM1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		label = "conn_therm";
+	};
+
+	channel@4e {
+		reg = <ADC5_AMUX_THM2_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		label = "charge_therm";
+	};
+
+	channel@4f {
+		reg = <ADC5_AMUX_THM3_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		label = "camera_ftherm";
+	};
+
+	/* Skin thermistor on PM6150L GPIO10 (AMUX GPIO4) */
+	channel@55 {
+		reg = <ADC5_GPIO4_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		label = "nvm_therm";
+	};
+};
+
+&pm6150l_adc_tm {
+	status = "okay";
+
+	usbc-thermistor@0 {
+		reg = <0>;
+		io-channels = <&pm6150l_adc ADC5_AMUX_THM1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time-us = <200>;
+	};
+
+	charge-thermistor@1 {
+		reg = <1>;
+		io-channels = <&pm6150l_adc ADC5_AMUX_THM2_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time-us = <200>;
+	};
+
+	wifi-thermistor@2 {
+		reg = <2>;
+		io-channels = <&pm6150l_adc ADC5_AMUX_THM3_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time-us = <200>;
+	};
+
+	skin-thermistor@3 {
+		reg = <3>;
+		io-channels = <&pm6150l_adc ADC5_GPIO4_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time-us = <200>;
+	};
+};
+
 &pm6150l_flash {
 	status = "okay";
 
@@ -1069,6 +1184,12 @@
 };
 
 &pm6150l_gpios {
+	skin_therm_default: skin-therm-default-state {
+		pins = "gpio10";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		bias-high-impedance;
+	};
+
 	vol_up_n: vol-up-n-state {
 		pins = "gpio2";
 		function = PMIC_GPIO_FUNC_NORMAL;
@@ -1699,6 +1820,99 @@
 				data-lanes = <1 2 3 4>;
 				link-frequencies = /bits/ 64 <360000000>;
 				remote-endpoint = <&camss_endpoint2>;
+			};
+		};
+	};
+};
+
+/*
+ * Board thermistors. Zone names follow downstream; skin and USB-C use the
+ * *-monitor names the stock thermal HAL config (thermal_info_config) reads.
+ */
+/ {
+	thermal-zones {
+		rf-front-therm-adc {
+			thermal-sensors = <&pm6150_adc_tm 0>;
+
+			trips {
+				rf-hot {
+					temperature = <125000>;
+					hysteresis = <1000>;
+					type = "hot";
+				};
+			};
+		};
+
+		rf-back-therm-adc {
+			thermal-sensors = <&pm6150_adc_tm 1>;
+
+			trips {
+				rf-hot {
+					temperature = <125000>;
+					hysteresis = <1000>;
+					type = "hot";
+				};
+			};
+		};
+
+		rf-therm-adc {
+			thermal-sensors = <&pm6150_adc_tm 2>;
+
+			trips {
+				rf-hot {
+					temperature = <125000>;
+					hysteresis = <1000>;
+					type = "hot";
+				};
+			};
+		};
+
+		usbc-therm-monitor {
+			thermal-sensors = <&pm6150l_adc_tm 0>;
+
+			trips {
+				usbc-hot {
+					temperature = <125000>;
+					hysteresis = <1000>;
+					type = "hot";
+				};
+			};
+		};
+
+		charge-therm-adc {
+			thermal-sensors = <&pm6150l_adc_tm 1>;
+
+			trips {
+				charge-hot {
+					temperature = <125000>;
+					hysteresis = <1000>;
+					type = "hot";
+				};
+			};
+		};
+
+		wifi-therm-adc {
+			thermal-sensors = <&pm6150l_adc_tm 2>;
+
+			trips {
+				wifi-hot {
+					temperature = <125000>;
+					hysteresis = <1000>;
+					type = "hot";
+				};
+			};
+		};
+
+		skin-therm-monitor {
+		/* Downstream shuts down at 63 C; only notify until the readings are validated */
+			thermal-sensors = <&pm6150l_adc_tm 3>;
+
+			trips {
+				skin-hot {
+					temperature = <63000>;
+					hysteresis = <1000>;
+					type = "hot";
+				};
 			};
 		};
 	};
