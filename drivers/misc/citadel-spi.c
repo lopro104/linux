@@ -381,7 +381,7 @@ static int citadel_probe(struct spi_device *spi)
 		return dev_err_probe(dev, citadel->irq, "no irq for ctdl-ap-irq\n");
 
 	ret = devm_request_irq(dev, citadel->irq, citadel_irq_handler,
-			       IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+			       IRQF_TRIGGER_RISING,
 			       dev_name(dev), citadel);
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to request irq\n");
