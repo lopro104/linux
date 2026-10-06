@@ -664,6 +664,15 @@ config CITADEL
 	  To compile this driver as a module, choose M here: the module will
 	  be called citadel-spi.
 
+config GOOGLE_CDT_MACS
+	bool "Wi-Fi/Bluetooth addresses from the Google bootloader"
+	depends on OF
+	help
+	  Say Y here on Pixel phones booted by Google's ABL. It copies the
+	  factory-provisioned Wi-Fi MAC and Bluetooth address that the
+	  bootloader publishes under /chosen/cdt/cdb2 into the wifi0 and
+	  bluetooth0 nodes as local-mac-address and local-bd-address.
+
 config ST54J_SE
 	tristate "STMicroelectronics ST54J embedded secure element"
 	depends on SPI
