@@ -77,4 +77,5 @@ obj-y				+= amd-sbi/
 obj-$(CONFIG_MISC_RP1)		+= rp1/
 obj-$(CONFIG_CITADEL)		+= citadel-spi.o
 obj-$(CONFIG_ST54J_SE)		+= st54j_se.o
+obj-$(CONFIG_GOOGLE_CDT_MACS)	+= google-cdt-macs.o
 obj-$(CONFIG_QSEECOM)		+= qseecom.o
