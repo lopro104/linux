@@ -493,6 +493,7 @@ static inline int smb_get_current_now(struct smb_chip *chip,
 static int smb_set_current_limit(struct smb_chip *chip, unsigned int val)
 {
 	unsigned char val_raw;
+	int rc;
 
 	if (val > chip->current_limit_max_ua) {
 		dev_err(chip->dev,
@@ -501,8 +502,22 @@ static int smb_set_current_limit(struct smb_chip *chip, unsigned int val)
 	}
 	val_raw = val / chip->current_step_size_ua;
 
-	return regmap_write(chip->regmap, chip->base + USBIN_CURRENT_LIMIT_CFG,
-			    val_raw);
+	rc = regmap_write(chip->regmap, chip->base + USBIN_CURRENT_LIMIT_CFG,
+			  val_raw);
+	if (rc < 0)
+		return rc;
+
+	/*
+	 * In the default (hardware auto) mode the charger applies its own
+	 * limit for the APSD result, 500 mA for an SDP, and ignores
+	 * USBIN_CURRENT_LIMIT_CFG. Above that, override it after APSD with
+	 * the programmed limit in high-current mode, like the downstream
+	 * smb5 driver's SW_OVERRIDE_HC_MODE.
+	 */
+	return regmap_update_bits(chip->regmap, chip->base + USBIN_LOAD_CFG,
+				  ICL_OVERRIDE_AFTER_APSD_BIT,
+				  val > SDP_CURRENT_UA ?
+				  ICL_OVERRIDE_AFTER_APSD_BIT : 0);
 }
 
 static void smb_status_change_work(struct work_struct *work)
@@ -808,7 +823,7 @@ static void smb_external_power_changed(struct power_supply *psy)
 		return;
 
 	/* The Type-C/PD current limit changed, re-evaluate the ICL */
-	mod_delayed_work(system_wq, &chip->status_change_work, 0);
+	mod_delayed_work(system_dfl_wq, &chip->status_change_work, 0);
 }
 
 static const struct power_supply_desc smb_psy_desc = {
