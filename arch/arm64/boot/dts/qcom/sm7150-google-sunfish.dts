@@ -1029,6 +1029,8 @@
 	monitored-battery = <&battery>;
 	/* Type-C Rp / PD contract current from the TCPM port */
 	power-supplies = <&pm6150_typec>;
+	/* Suspends USB input when the port overheats (usbc-therm-monitor) */
+	#cooling-cells = <2>;
 	status = "okay";
 };
 
@@ -1868,13 +1870,31 @@
 		};
 
 		usbc-therm-monitor {
+			/*
+			 * Downstream overheat_mitigation: stop charging from
+			 * the port above 60 C, resume below 50 C.
+			 */
+			polling-delay-passive = <2000>;
 			thermal-sensors = <&pm6150l_adc_tm 0>;
 
 			trips {
+				usbc_overheat: usbc-overheat {
+					temperature = <60000>;
+					hysteresis = <10000>;
+					type = "passive";
+				};
+
 				usbc-hot {
 					temperature = <125000>;
 					hysteresis = <1000>;
 					type = "hot";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&usbc_overheat>;
+					cooling-device = <&pm6150_charger 1 1>;
 				};
 			};
 		};
