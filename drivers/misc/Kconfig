@@ -664,6 +664,17 @@ config CITADEL
 	  To compile this driver as a module, choose M here: the module will
 	  be called citadel-spi.
 
+config ST54J_SE
+	tristate "STMicroelectronics ST54J embedded secure element"
+	depends on SPI
+	help
+	  Say Y here if you have the ST54J embedded secure element on SPI,
+	  as found in the Pixel 4a. It is exposed to userspace as a raw
+	  transport at /dev/st54j_se, used by the secure_element HAL.
+
+	  To compile this driver as a module, choose M here: the module will
+	  be called st54j_se.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"

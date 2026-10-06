@@ -1193,7 +1193,19 @@
 		pinctrl-names = "default";
 	};
 
-	/* st,st54j_se @ 1 */
+	/*
+	 * ST54J eSE on CS1, used by the secure_element HAL through
+	 * /dev/st54j_se. Downstream asks the SE for 90 SCLK cycles between
+	 * CS and the first clock (11.25 us at 8 MHz).
+	 */
+	ese@1 {
+		compatible = "st,st54j-se";
+		reg = <1>;
+		spi-max-frequency = <8000000>;
+		spi-cs-setup-delay-ns = <11250>;
+
+		reset-gpios = <&tlmm 63 GPIO_ACTIVE_LOW>;
+	};
 };
 
 &tlmm {
