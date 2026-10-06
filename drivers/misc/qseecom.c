@@ -241,15 +241,77 @@ static void qsee_dmac_flush_range(void *vaddr, size_t len)
 	}
 }
 
+/* SMC result: the secure call was preempted and must be resumed */
+#define QSEECOM_SCM_INTERRUPTED		1
+
+/*
+ * Issue a QSEE SMC and resume it while TZ reports it as interrupted, like
+ * qcom_scm does: re-issue with function ID QCOM_SCM_INTERRUPTED and the
+ * session state TZ returned in x6 (ARM_SMCCC_QUIRK_QCOM_A6). Treating the
+ * interrupted status as a result leaves the call pending in TZ, and the
+ * next SMC then never returns (one CPU stuck in the secure world).
+ */
+#define QSEECOM_SCM_REG_ARGS		4	/* x2..x5 */
+#define QSEECOM_SCM_FIRST_EXT_ARG	3	/* args[3..] via x5 when > 4 */
+
+static int __qseecom_smc(uint32_t smc_id, struct scm_desc *desc,
+			 struct arm_smccc_res *res)
+{
+	struct arm_smccc_quirk quirk = { .id = ARM_SMCCC_QUIRK_QCOM_A6 };
+	unsigned int nargs = desc->arginfo & 0xf;
+	unsigned long fn = smc_id, x5 = desc->args[3];
+	dma_addr_t ext_dma = DMA_MAPPING_ERROR;
+	u64 *ext = NULL;
+	size_t ext_len = 0;
+
+	/*
+	 * Like scm_call2() / qcom_scm: with more than four arguments, x5
+	 * points at a buffer holding args[3..] instead.
+	 */
+	if (nargs > QSEECOM_SCM_REG_ARGS) {
+		unsigned int i, n = ARRAY_SIZE(desc->args) - QSEECOM_SCM_FIRST_EXT_ARG;
+
+		ext_len = n * sizeof(*ext);
+		ext = kzalloc(ext_len, GFP_KERNEL);
+		if (!ext)
+			return -ENOMEM;
+		for (i = 0; i < n; i++)
+			ext[i] = cpu_to_le64(desc->args[QSEECOM_SCM_FIRST_EXT_ARG + i]);
+		ext_dma = dma_map_single(qseecom.dev, ext, ext_len, DMA_TO_DEVICE);
+		if (dma_mapping_error(qseecom.dev, ext_dma)) {
+			kfree(ext);
+			return -ENOMEM;
+		}
+		x5 = ext_dma;
+	}
+
+	quirk.state.a6 = 0;
+
+	do {
+		arm_smccc_smc_quirk(fn, desc->arginfo, desc->args[0],
+				    desc->args[1], desc->args[2], x5,
+				    quirk.state.a6, 0, res, &quirk);
+
+		if (res->a0 == QSEECOM_SCM_INTERRUPTED)
+			fn = res->a0;
+	} while (res->a0 == QSEECOM_SCM_INTERRUPTED);
+
+	if (ext) {
+		dma_unmap_single(qseecom.dev, ext_dma, ext_len, DMA_TO_DEVICE);
+		kfree(ext);
+	}
+
+	return 0;
+}
+
 static int __qseecom_scm_call2_locked(uint32_t smc_id, struct scm_desc *desc)
 {
 	struct arm_smccc_res res;
 	int retry_count = 0;
 
 	do {
-		arm_smccc_smc(smc_id, desc->arginfo, desc->args[0],
-			      desc->args[1], desc->args[2], desc->args[3],
-			      desc->args[4], desc->args[5], &res);
+		if (__qseecom_smc(smc_id, desc, &res))
+			return -ENOMEM;
 
 		desc->ret[0] = res.a0;
 		desc->ret[1] = res.a1;
