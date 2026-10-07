@@ -3835,11 +3835,19 @@ static void clk_core_reparent_orphans_nolock(void)
 		 * properly migrate any prepare/enable count of the orphan
 		 * clock. This is important for CLK_IS_CRITICAL clocks, which
 		 * are enabled during init but might not have a parent yet.
+		 * If the orphan is not prepared, simply reparent without
+		 * triggering CLK_OPS_PARENT_ENABLE on unconfigured hardware.
 		 */
 		if (parent) {
 			/* update the clk tree topology */
-			__clk_set_parent_before(orphan, parent);
-			__clk_set_parent_after(orphan, parent, NULL);
+			if (orphan->prepare_count) {
+				__clk_set_parent_before(orphan, parent);
+				__clk_set_parent_after(orphan, parent, NULL);
+			} else {
+				unsigned long flags = clk_enable_lock();
+				clk_reparent(orphan, parent);
+				clk_enable_unlock(flags);
+			}
 			__clk_recalc_accuracies(orphan);
 			__clk_recalc_rates(orphan, true, 0);
 
