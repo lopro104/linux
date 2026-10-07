@@ -1735,7 +1735,15 @@
 				"DMIC1L", "mic1-ldo",
 				"DMIC1R", "mic1-ldo",
 				"DMIC2L", "mic2-ldo",
-				"DMIC2R", "mic2-ldo";
+				"DMIC2R", "mic2-ldo",
+				"IN1_HPHL", "HPHL_OUT",
+				"IN2_HPHR", "HPHR_OUT",
+				"Headphone Jack", "HPHL",
+				"Headphone Jack", "HPHR",
+				"AMIC2", "MIC BIAS2",
+				"AMIC2", "Mic Jack",
+				"TX SWR_ADC0", "ADC1_OUTPUT",
+				"TX SWR_ADC2", "ADC2_OUTPUT";
 
 		mm1-dai-link {
 			link-name = "MultiMedia1";
@@ -1774,6 +1782,38 @@
 
 			codec {
 				sound-dai = <&codec>;
+			};
+		};
+
+		wcd-playback-dai-link {
+			link-name = "WCD Playback";
+
+			cpu {
+				sound-dai = <&q6afedai RX_CODEC_DMA_RX_0>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9375 0>, <&swr_rx 0>, <&rxmacro 0>;
+			};
+		};
+
+		wcd-capture-dai-link {
+			link-name = "WCD Capture";
+
+			cpu {
+				sound-dai = <&q6afedai TX_CODEC_DMA_TX_3>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9375 1>, <&swr_tx 0>, <&txmacro 0>;
 			};
 		};
 	};
