@@ -99,8 +99,9 @@ static int lmh_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct device_node *np = dev->of_node;
 	struct device_node *cpu_node;
+	struct of_phandle_args domain;
 	struct lmh_hw_data *lmh_data;
-	int temp_low, temp_high, temp_arm, cpu_id, ret;
+	int temp_low, temp_high, temp_arm, cpu_id, cluster, ret;
 	unsigned int enable_alg;
 	u32 node_id;
 
@@ -119,6 +120,23 @@ static int lmh_probe(struct platform_device *pdev)
 	if (!cpu_node)
 		return -EINVAL;
 	cpu_id = of_cpu_node_to_id(cpu_node);
+
+	/*
+	 * Each LMh DCVS node serves one cpufreq-hw frequency domain, so take
+	 * the cluster from the CPU's domain where available; that also covers
+	 * SoCs whose second cluster does not start at CPU 4.
+	 */
+	if (!of_parse_phandle_with_args(cpu_node, "qcom,freq-domain",
+					"#freq-domain-cells", 0, &domain)) {
+		cluster = domain.args_count ? domain.args[0] : -1;
+		of_node_put(domain.np);
+	} else if (cpu_id == 0) {
+		cluster = 0;
+	} else if (cpu_id == 4) {
+		cluster = 1;
+	} else {
+		cluster = -1;
+	}
 	of_node_put(cpu_node);
 
 	ret = of_property_read_u32(np, "qcom,lmh-temp-high-millicelsius", &temp_high);
@@ -139,14 +157,9 @@ static int lmh_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	/*
-	 * Only sdm845 has lmh hardware currently enabled from hlos. If this is needed
-	 * for other platforms, revisit this to check if the <cpu-id, node-id> should be part
-	 * of a dt match table.
-	 */
-	if (cpu_id == 0) {
+	if (cluster == 0) {
 		node_id = LMH_CLUSTER0_NODE_ID;
-	} else if (cpu_id == 4) {
+	} else if (cluster == 1) {
 		node_id = LMH_CLUSTER1_NODE_ID;
 	} else {
 		dev_err(dev, "Wrong CPU id associated with LMh node\n");
