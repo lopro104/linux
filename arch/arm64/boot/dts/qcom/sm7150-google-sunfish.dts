@@ -760,38 +760,10 @@
 	status = "okay";
 	clock-frequency = <400000>;
 
-	power-monitor@10 {
-		compatible = "microchip,pac1934";
-		reg = <0x10>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-
-		avdd-supply = <&vreg_l6c_3p0>;
-
-		channel@1 {
-			reg = <0x1>;
-			shunt-resistor-micro-ohms = <10000>;
-			label = "VPH_PWR_S2C_S3C";
-		};
-
-		channel@2 {
-			reg = <0x2>;
-			shunt-resistor-micro-ohms = <10000>;
-			label = "VPH_PWR_S4C";
-		};
-
-		channel@3 {
-			reg = <0x3>;
-			shunt-resistor-micro-ohms = <10000>;
-			label = "VPH_PWR_S5C_S6C";
-		};
-
-		channel@4 {
-			reg = <0x4>;
-			shunt-resistor-micro-ohms = <10000>;
-			label = "VPH_PWR_OLED";
-		};
-	};
+	/*
+	 * No PAC1934 power monitor at 0x10: stock's pac193x driver fails to probe
+	 * it too (not populated on production boards).
+	 */
 
 	/* Battery info EEPROM (stock m24c08, google_bms "batt_eeprom") */
 	eeprom@50 {
