@@ -19,6 +19,7 @@
 #include <linux/i2c.h>
 #include <linux/iio/iio.h>
 #include <linux/iio/sysfs.h>
+#include <linux/regulator/consumer.h>
 #include <linux/unaligned.h>
 
 /*
@@ -1497,6 +1498,10 @@ static int pac1934_probe(struct i2c_client *client)
 	/* always start with energy accumulation enabled */
 	for (cnt = 0; cnt < PAC1934_MAX_NUM_CHANNELS; cnt++)
 		info->enable_energy[cnt] = true;
+
+	ret = devm_regulator_get_enable_optional(dev, "avdd");
+	if (ret)
+		return dev_err_probe(dev, ret, "cannot enable avdd supply\n");
 
 	ret = pac1934_chip_identify(info);
 	if (ret < 0) {

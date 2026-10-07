@@ -757,10 +757,41 @@
 };
 
 &i2c9 {
-	status= "okay";
+	status = "okay";
 	clock-frequency = <400000>;
 
-	/* microchip,pac1934 power-monitor@10 */
+	power-monitor@10 {
+		compatible = "microchip,pac1934";
+		reg = <0x10>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		avdd-supply = <&vreg_l6c_3p0>;
+
+		channel@1 {
+			reg = <0x1>;
+			shunt-resistor-micro-ohms = <10000>;
+			label = "VPH_PWR_S2C_S3C";
+		};
+
+		channel@2 {
+			reg = <0x2>;
+			shunt-resistor-micro-ohms = <10000>;
+			label = "VPH_PWR_S4C";
+		};
+
+		channel@3 {
+			reg = <0x3>;
+			shunt-resistor-micro-ohms = <10000>;
+			label = "VPH_PWR_S5C_S6C";
+		};
+
+		channel@4 {
+			reg = <0x4>;
+			shunt-resistor-micro-ohms = <10000>;
+			label = "VPH_PWR_OLED";
+		};
+	};
 
 	/* Battery info EEPROM (stock m24c08, google_bms "batt_eeprom") */
 	eeprom@50 {
@@ -1058,7 +1089,7 @@
 };
 
 &pm6150_typec {
-	vdd-vbus-supply = <&pm6150_vbus>;
+	vdd-vbus-supply = <&ext_5v_boost>;
 	vdd-pdphy-supply = <&vdda_usb_hs_3p1>;
 	status = "okay";
 
@@ -1497,6 +1528,13 @@
 };
 
 &pm6150_gpios {
+	ext_5v_vbus_default: ext-5v-vbus-default-state {
+		pins = "gpio1";
+		function = "normal";
+		output-low;
+		power-source = <1>;
+	};
+
 	touch_power_default: touch-power-default-state {
 		pins = "gpio4";
 		function = "normal";
@@ -1723,6 +1761,18 @@
 		regulator-max-microvolt = <2850000>;
 		gpio = <&pm6150l_gpios 12 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
+	};
+
+	/* USB OTG external 5V boost regulator (stock ext_5v_boost via PM6150 GPIO 1) */
+	ext_5v_boost: regulator-ext-5v-boost {
+		compatible = "regulator-fixed";
+		regulator-name = "ext_5v_boost";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		gpio = <&pm6150_gpios 1 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-names = "default";
+		pinctrl-0 = <&ext_5v_vbus_default>;
 	};
 };
 
