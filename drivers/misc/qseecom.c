@@ -641,14 +641,13 @@ static int qseecom_scm_call(u32 svc_id, u32 tz_cmd_id, const void *cmd_buf,
 
 static struct qseecom_registered_listener_list *__qseecom_find_svc(int32_t listener_id)
 {
-	struct qseecom_registered_listener_list *entry = NULL;
+	struct qseecom_registered_listener_list *entry;
+
 	list_for_each_entry(entry, &qseecom.registered_listener_list_head, list) {
 		if (entry->svc.listener_id == listener_id)
-			break;
+			return entry;
 	}
-	if ((entry != NULL) && (entry->svc.listener_id != listener_id))
-		return NULL;
-	return entry;
+	return NULL;
 }
 
 static int qseecom_dmabuf_cache_operations(struct dma_buf *dmabuf,
@@ -1032,7 +1031,7 @@ static int __qseecom_process_incomplete_cmd(struct qseecom_dev_handle *data,
 	int ret = 0, rc = 0;
 	uint32_t lstnr, status;
 	struct qseecom_client_listener_data_64bit_irsp send_data_rsp_64bit = {0};
-	struct qseecom_registered_listener_list *ptr_svc = NULL;
+	struct qseecom_registered_listener_list *ptr_svc = NULL, *iter;
 	sigset_t new_sigset, old_sigset;
 	void *cmd_buf = NULL;
 	size_t cmd_len;
@@ -1042,26 +1041,38 @@ static int __qseecom_process_incomplete_cmd(struct qseecom_dev_handle *data,
 	while (resp->result == QSEOS_RESULT_INCOMPLETE) {
 		lstnr = resp->data;
 		mutex_lock(&listener_access_lock);
-		list_for_each_entry(ptr_svc, &qseecom.registered_listener_list_head, list) {
-			if (ptr_svc->svc.listener_id == lstnr) {
-				ptr_svc->listener_in_use = true;
-				ptr_svc->rcv_req_flag = 1;
-				ret = qseecom_dmabuf_cache_operations(ptr_svc->dmabuf, QSEECOM_CACHE_INVALIDATE);
-				if (ret) {
-					rc = -EINVAL;
-					status = QSEOS_RESULT_FAILURE;
-					goto err_resp;
-				}
-				wake_up_interruptible(&ptr_svc->rcv_req_wq);
+		/*
+		 * The iterator never ends up NULL: without a match it points
+		 * into the list head inside struct qseecom, so keep the match
+		 * separately.
+		 */
+		ptr_svc = NULL;
+		list_for_each_entry(iter, &qseecom.registered_listener_list_head, list) {
+			if (iter->svc.listener_id == lstnr) {
+				ptr_svc = iter;
 				break;
 			}
 		}
 
-		if (ptr_svc == NULL || !ptr_svc->dmabuf || ptr_svc->svc.listener_id != lstnr || ptr_svc->abort == 1) {
+		if (ptr_svc == NULL || !ptr_svc->dmabuf || ptr_svc->abort == 1) {
+			pr_err_ratelimited("qseecom: app %u (%s) got a request for listener %u (resp_type %u), which is %s\n",
+					   data->client.app_id, data->client.app_name,
+					   lstnr, resp->resp_type,
+					   ptr_svc ? "not ready" : "not registered");
 			rc = -EINVAL;
 			status = QSEOS_RESULT_FAILURE;
 			goto err_resp;
 		}
+
+		ptr_svc->listener_in_use = true;
+		ptr_svc->rcv_req_flag = 1;
+		ret = qseecom_dmabuf_cache_operations(ptr_svc->dmabuf, QSEECOM_CACHE_INVALIDATE);
+		if (ret) {
+			rc = -EINVAL;
+			status = QSEOS_RESULT_FAILURE;
+			goto err_resp;
+		}
+		wake_up_interruptible(&ptr_svc->rcv_req_wq);
 
 		sigfillset(&new_sigset);
 		sigprocmask(SIG_SETMASK, &new_sigset, &old_sigset);
