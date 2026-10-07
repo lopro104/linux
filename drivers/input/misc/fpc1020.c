@@ -74,7 +74,6 @@ struct fpc1020_data {
 	struct mutex lock; /* serialises the sysfs controls */
 	bool prepared;
 	atomic_t wakeup_enabled; /* read from the IRQ handler */
-	atomic_t irq_generated; /* latched pulse for userspace poll */
 };
 
 static int vreg_setup(struct fpc1020_data *fpc1020, const char *name,
@@ -205,8 +204,6 @@ static DEVICE_ATTR_WO(regulator_enable);
 
 static int hw_reset(struct fpc1020_data *fpc1020)
 {
-	atomic_set(&fpc1020->irq_generated, 0);
-
 	gpiod_set_value_cansleep(fpc1020->rst_gpio, 0);
 	usleep_range(RESET_HIGH_SLEEP1_MIN_US, RESET_HIGH_SLEEP1_MAX_US);
 
@@ -328,21 +325,15 @@ static DEVICE_ATTR_WO(wakeup_enable);
 
 /*
  * Reads the level of the IRQ line. The IRQ handler sysfs_notify()s this
- * node so userspace can poll() it. Latch irq_generated so transient edge
- * pulses that drop back to 0 before userspace poll() wakes and calls read()
- * still report 1, preventing the closed HAL from dropping touch events.
+ * node so userspace can poll() it. Writes are accepted and ignored.
  */
 static ssize_t irq_show(struct device *dev, struct device_attribute *attr,
 			char *buf)
 {
 	struct fpc1020_data *fpc1020 = dev_get_drvdata(dev);
-	int val;
 
-	val = atomic_xchg(&fpc1020->irq_generated, 0);
-	if (!val)
-		val = gpiod_get_value_cansleep(fpc1020->irq_gpio);
-
-	return sysfs_emit(buf, "%i\n", val ? 1 : 0);
+	return sysfs_emit(buf, "%i\n",
+			  gpiod_get_value_cansleep(fpc1020->irq_gpio));
 }
 
 static ssize_t irq_store(struct device *dev, struct device_attribute *attr,
@@ -367,8 +358,6 @@ ATTRIBUTE_GROUPS(fpc1020);
 static irqreturn_t fpc1020_irq_handler(int irq, void *handle)
 {
 	struct fpc1020_data *fpc1020 = handle;
-
-	atomic_set(&fpc1020->irq_generated, 1);
 
 	if (atomic_read(&fpc1020->wakeup_enabled))
 		__pm_wakeup_event(fpc1020->ttw_ws, FPC_TTW_HOLD_TIME_MS);
@@ -431,7 +420,6 @@ static int fpc1020_probe(struct platform_device *pdev)
 	fpc1020->dev = dev;
 	platform_set_drvdata(pdev, fpc1020);
 	atomic_set(&fpc1020->wakeup_enabled, 0);
-	atomic_set(&fpc1020->irq_generated, 0);
 
 	rc = devm_mutex_init(dev, &fpc1020->lock);
 	if (rc)
