@@ -17,6 +17,7 @@
  */
 
 #include <linux/atomic.h>
+#include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/err.h>
@@ -66,10 +67,14 @@ struct fpc1020_data {
 	struct regulator *vreg[ARRAY_SIZE(fpc1020_vregs)];
 	bool vreg_on[ARRAY_SIZE(fpc1020_vregs)];
 
+	struct clk_bulk_data *clks;
+	int num_clks;
+
 	struct wakeup_source *ttw_ws;
 	struct mutex lock; /* serialises the sysfs controls */
 	bool prepared;
 	atomic_t wakeup_enabled; /* read from the IRQ handler */
+	atomic_t irq_generated; /* latched pulse for userspace poll */
 };
 
 static int vreg_setup(struct fpc1020_data *fpc1020, const char *name,
@@ -200,6 +205,8 @@ static DEVICE_ATTR_WO(regulator_enable);
 
 static int hw_reset(struct fpc1020_data *fpc1020)
 {
+	atomic_set(&fpc1020->irq_generated, 0);
+
 	gpiod_set_value_cansleep(fpc1020->rst_gpio, 0);
 	usleep_range(RESET_HIGH_SLEEP1_MIN_US, RESET_HIGH_SLEEP1_MAX_US);
 
@@ -321,15 +328,21 @@ static DEVICE_ATTR_WO(wakeup_enable);
 
 /*
  * Reads the level of the IRQ line. The IRQ handler sysfs_notify()s this
- * node so userspace can poll() it. Writes are accepted and ignored.
+ * node so userspace can poll() it. Latch irq_generated so transient edge
+ * pulses that drop back to 0 before userspace poll() wakes and calls read()
+ * still report 1, preventing the closed HAL from dropping touch events.
  */
 static ssize_t irq_show(struct device *dev, struct device_attribute *attr,
 			char *buf)
 {
 	struct fpc1020_data *fpc1020 = dev_get_drvdata(dev);
+	int val;
 
-	return sysfs_emit(buf, "%i\n",
-			  gpiod_get_value_cansleep(fpc1020->irq_gpio));
+	val = atomic_xchg(&fpc1020->irq_generated, 0);
+	if (!val)
+		val = gpiod_get_value_cansleep(fpc1020->irq_gpio);
+
+	return sysfs_emit(buf, "%i\n", val ? 1 : 0);
 }
 
 static ssize_t irq_store(struct device *dev, struct device_attribute *attr,
@@ -355,6 +368,8 @@ static irqreturn_t fpc1020_irq_handler(int irq, void *handle)
 {
 	struct fpc1020_data *fpc1020 = handle;
 
+	atomic_set(&fpc1020->irq_generated, 1);
+
 	if (atomic_read(&fpc1020->wakeup_enabled))
 		__pm_wakeup_event(fpc1020->ttw_ws, FPC_TTW_HOLD_TIME_MS);
 
@@ -373,6 +388,13 @@ static void fpc1020_disable_irq_wake(void *data)
 	struct fpc1020_data *fpc1020 = data;
 
 	disable_irq_wake(fpc1020->irq);
+}
+
+static void fpc1020_clk_disable(void *data)
+{
+	struct fpc1020_data *fpc1020 = data;
+
+	clk_bulk_disable_unprepare(fpc1020->num_clks, fpc1020->clks);
 }
 
 static int fpc1020_get_regulators(struct fpc1020_data *fpc1020)
@@ -409,10 +431,26 @@ static int fpc1020_probe(struct platform_device *pdev)
 	fpc1020->dev = dev;
 	platform_set_drvdata(pdev, fpc1020);
 	atomic_set(&fpc1020->wakeup_enabled, 0);
+	atomic_set(&fpc1020->irq_generated, 0);
 
 	rc = devm_mutex_init(dev, &fpc1020->lock);
 	if (rc)
 		return rc;
+
+	rc = devm_clk_bulk_get_all(dev, &fpc1020->clks);
+	if (rc < 0)
+		return dev_err_probe(dev, rc, "failed to get clocks\n");
+	fpc1020->num_clks = rc;
+
+	if (fpc1020->num_clks > 0) {
+		rc = clk_bulk_prepare_enable(fpc1020->num_clks, fpc1020->clks);
+		if (rc)
+			return dev_err_probe(dev, rc, "failed to enable clocks\n");
+
+		rc = devm_add_action_or_reset(dev, fpc1020_clk_disable, fpc1020);
+		if (rc)
+			return rc;
+	}
 
 	fpc1020->irq_gpio = devm_gpiod_get(dev, "irq", GPIOD_IN);
 	if (IS_ERR(fpc1020->irq_gpio))
