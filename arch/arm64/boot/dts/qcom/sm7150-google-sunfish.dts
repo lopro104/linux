@@ -146,6 +146,8 @@
 		voltage-min-design-microvolt = <3300000>;
 		voltage-max-design-microvolt = <4450000>;
 		charge-full-design-microamp-hours = <3080000>;
+		/* Downstream google,chg-temp-limits charging window */
+		operating-range-celsius = <0 55>;
 		/*
 		 * Approximate cell + path resistance; the downstream fuel gauge
 		 * measures ESR at runtime instead. Used to estimate the resting
