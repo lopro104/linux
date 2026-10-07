@@ -169,13 +169,14 @@ config SND_SOC_MSM8996
 
 config SND_SOC_SM7150
 	tristate "SoC Machine driver for SM7150 boards"
-	depends on QCOM_APR && I2C
+	depends on QCOM_APR && I2C && SOUNDWIRE
 	depends on COMMON_CLK
 	select SND_SOC_QDSP6
 	select SND_SOC_QCOM_COMMON
 	select SND_SOC_CS35L41_I2C
 	select SND_SOC_RT5514
 	select SND_SOC_RT5514_SPI if SPI_MASTER
+	select SND_SOC_QCOM_SDW
 	help
 	  To add support for audio on Qualcomm Technologies Inc.
 	  SM7150 SoC-based systems, such as the Google Pixel 4a

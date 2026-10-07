@@ -3,12 +3,14 @@
  * ASoC machine driver for SM7150 boards using the APR (q6afe/q6asm/q6adm)
  * audio DSP. Currently handles the Google Pixel 4a (sunfish) loudspeakers,
  * two Cirrus CS35L41 amplifiers on the secondary TDM bus, and its two
- * digital microphones behind a Realtek RT5514 on the tertiary TDM bus.
+ * digital microphones behind a Realtek RT5514 on the tertiary TDM bus,
+ * and the WCD9375 headset codec on the LPASS codec DMA / SoundWire links.
  */
 
 #include <dt-bindings/sound/qcom,q6afe.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <sound/jack.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
@@ -16,6 +18,7 @@
 #include "../codecs/rt5514.h"
 #include "common.h"
 #include "qdsp6/q6afe.h"
+#include "sdw.h"
 
 #define DRIVER_NAME		"sm7150"
 #define DEFAULT_SAMPLE_RATE_48K	48000
@@ -32,6 +35,9 @@
 struct sm7150_snd_data {
 	struct snd_soc_card *card;
 	unsigned int sec_tdm_clk_count;
+	bool stream_prepared[AFE_PORT_MAX];
+	struct snd_soc_jack jack;
+	bool jack_setup;
 };
 
 static unsigned int tdm_slot_offset[TDM_SLOTS] = {0, 2, 4, 6};
@@ -217,7 +223,7 @@ static int sm7150_snd_startup(struct snd_pcm_substream *substream)
 		break;
 	}
 
-	return 0;
+	return qcom_snd_sdw_startup(substream);
 }
 
 static void sm7150_snd_shutdown(struct snd_pcm_substream *substream)
@@ -240,13 +246,45 @@ static void sm7150_snd_shutdown(struct snd_pcm_substream *substream)
 	default:
 		break;
 	}
+
+	qcom_snd_sdw_shutdown(substream);
+}
+
+static int sm7150_snd_prepare(struct snd_pcm_substream *substream)
+{
+	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
+	struct sm7150_snd_data *data = snd_soc_card_get_drvdata(rtd->card);
+	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
+
+	return qcom_snd_sdw_prepare(substream,
+				    &data->stream_prepared[cpu_dai->id]);
+}
+
+static int sm7150_snd_hw_free(struct snd_pcm_substream *substream)
+{
+	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
+	struct sm7150_snd_data *data = snd_soc_card_get_drvdata(rtd->card);
+	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
+
+	return qcom_snd_sdw_hw_free(substream,
+				    &data->stream_prepared[cpu_dai->id]);
 }
 
 static const struct snd_soc_ops sm7150_be_ops = {
 	.hw_params = sm7150_snd_hw_params,
 	.startup = sm7150_snd_startup,
 	.shutdown = sm7150_snd_shutdown,
+	.prepare = sm7150_snd_prepare,
+	.hw_free = sm7150_snd_hw_free,
 };
+
+/* The WCD9375 MBHC reports the 3.5 mm jack through the headset TX link */
+static int sm7150_snd_init(struct snd_soc_pcm_runtime *rtd)
+{
+	struct sm7150_snd_data *data = snd_soc_card_get_drvdata(rtd->card);
+
+	return qcom_snd_wcd_jack_setup(rtd, &data->jack, &data->jack_setup);
+}
 
 static int sm7150_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 				     struct snd_pcm_hw_params *params)
@@ -267,6 +305,8 @@ static int sm7150_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 static const struct snd_soc_dapm_widget sm7150_snd_widgets[] = {
 	SND_SOC_DAPM_SPK("Left Spk", NULL),
 	SND_SOC_DAPM_SPK("Right Spk", NULL),
+	SND_SOC_DAPM_HP("Headphone Jack", NULL),
+	SND_SOC_DAPM_MIC("Mic Jack", NULL),
 	SND_SOC_DAPM_REGULATOR_SUPPLY("mic1-ldo", 0, 0),
 	SND_SOC_DAPM_REGULATOR_SUPPLY("mic2-ldo", 0, 0),
 };
@@ -280,6 +320,7 @@ static void sm7150_add_ops(struct snd_soc_card *card)
 		if (link->no_pcm == 1) {
 			link->ops = &sm7150_be_ops;
 			link->be_hw_params_fixup = sm7150_be_hw_params_fixup;
+			link->init = sm7150_snd_init;
 		}
 	}
 }
