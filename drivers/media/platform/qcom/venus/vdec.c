@@ -186,7 +186,7 @@ vdec_try_fmt_common(struct venus_inst *inst, struct v4l2_format *f)
 	struct v4l2_pix_format_mplane *pixmp = &f->fmt.pix_mp;
 	struct v4l2_plane_pix_format *pfmt = pixmp->plane_fmt;
 	const struct venus_format *fmt;
-	u32 szimage;
+	u32 szimage, mbs_max;
 
 	memset(pfmt[0].reserved, 0, sizeof(pfmt[0].reserved));
 	memset(pixmp->reserved, 0, sizeof(pixmp->reserved));
@@ -208,6 +208,22 @@ vdec_try_fmt_common(struct venus_inst *inst, struct v4l2_format *f)
 			     frame_width_max(inst));
 	pixmp->height = clamp(pixmp->height, frame_height_min(inst),
 			      frame_height_max(inst));
+
+	/*
+	 * Width and height are clamped one by one, so e.g. 4096x4096 passes
+	 * although it needs more macroblocks per frame than the core can
+	 * decode (36864 = 4096x2304 on 4XX). Such a size also inflates the
+	 * load estimate in decide_core() until no session can start. Trim
+	 * the height to stay within the macroblocks-per-frame capability.
+	 */
+	mbs_max = mbs_per_frame_max(inst);
+	if (mbs_max) {
+		u32 mb_w = ALIGN(pixmp->width, 16) / 16;
+		u32 h_max = (mbs_max / mb_w) * 16;
+
+		if (ALIGN(pixmp->height, 16) / 16 * mb_w > mbs_max)
+			pixmp->height = max(h_max, frame_height_min(inst));
+	}
 
 	if (f->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
 		pixmp->height = ALIGN(pixmp->height, 32);
