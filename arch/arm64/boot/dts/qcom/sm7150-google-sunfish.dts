@@ -76,6 +76,39 @@
 		pinctrl-names = "default";
 	};
 
+	/*
+	 * WCD9375 headset codec (3.5 mm jack), on the LPASS RX/TX SoundWire
+	 * buses. Supplies and micbias as downstream sm6150-audio-overlay +
+	 * sm7150-sunfish-audio (micbias2 at 2.7 V); its reset is LPASS LPI
+	 * pin 6 (downstream LPI gpio24).
+	 */
+	wcd9375: audio-codec {
+		compatible = "qcom,wcd9375-codec";
+
+		pinctrl-0 = <&wcd_reset_n>;
+		pinctrl-names = "default";
+
+		reset-gpios = <&lpass_tlmm 6 GPIO_ACTIVE_LOW>;
+
+		vdd-buck-supply = <&vreg_l15a_1p8>;
+		vdd-rxtx-supply = <&vreg_l10a_1p8>;
+		vdd-px-supply = <&vreg_l10a_1p8>;
+		vdd-mic-bias-supply = <&vreg_bob>;
+
+		qcom,micbias1-microvolt = <1800000>;
+		qcom,micbias2-microvolt = <2700000>;
+		qcom,micbias3-microvolt = <1800000>;
+
+		qcom,mbhc-buttons-vthreshold-microvolt = <75000 150000 237000 500000 500000 500000 500000 500000>;
+		qcom,mbhc-headset-vthreshold-microvolt = <1700000>;
+		qcom,mbhc-headphone-vthreshold-microvolt = <50000>;
+
+		qcom,rx-device = <&wcd937x_rx>;
+		qcom,tx-device = <&wcd937x_tx>;
+
+		#sound-dai-cells = <1>;
+	};
+
 	gpio_keys: gpio-keys {
 		compatible = "gpio-keys";
 
@@ -944,6 +977,15 @@
 	status = "okay";
 };
 
+&lpass_tlmm {
+	wcd_reset_n: wcd-reset-n-state {
+		pins = "gpio6";
+		function = "gpio";
+		drive-strength = <16>;
+		output-high;
+	};
+};
+
 &mdss {
 	status = "okay";
 };
@@ -1588,6 +1630,51 @@
 
 &usb_1_qmpphy_out {
 	remote-endpoint = <&pm6150_typec_mux_in>;
+};
+
+&rxmacro {
+	status = "okay";
+};
+
+&swr_rx {
+	status = "okay";
+
+	/* WCD937x RX ports 1-5 (HPH, CLSH, COMP, LO, DSD) <=> master ports 1-5 */
+	wcd937x_rx: codec@0,4 {
+		compatible = "sdw20217010a00";
+		reg = <0 4>;
+		qcom,rx-port-mapping = <1 2 3 4 5>;
+		/* hph_l, hph_r, clsh, comp_l, comp_r, lo, dsd_r, dsd_l */
+		qcom,rx-channel-mapping = /bits/ 8 <1 2 1 1 2 1 1 2>;
+	};
+};
+
+&swr_tx {
+	status = "okay";
+
+	/*
+	 * As downstream's tx_swr_ch_map: WCD937x TX port 1 (ADC1) <=> master
+	 * port 2, port 2 (ADC2/3) <=> 3, port 3 (DMIC0/1, MBHC) <=> 4,
+	 * port 4 (DMIC2-5) <=> 5.
+	 */
+	wcd937x_tx: codec@0,3 {
+		compatible = "sdw20217010a00";
+		reg = <0 3>;
+		qcom,tx-port-mapping = <2 3 4 5>;
+		/*
+		 * adc1, adc2, adc3, dmic0, dmic1, mbhc, dmic2..dmic7, per the
+		 * downstream map (dmic6/7 are unused there).
+		 */
+		qcom,tx-channel-mapping = /bits/ 8 <1 1 2 1 2 3 1 2 3 4 3 4>;
+	};
+};
+
+&txmacro {
+	status = "okay";
+};
+
+&vamacro {
+	status = "okay";
 };
 
 &wifi {
