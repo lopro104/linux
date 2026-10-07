@@ -266,11 +266,13 @@ static int vdec_check_src_change(struct venus_inst *inst)
 {
 	int ret;
 
-	if (inst->subscriptions & V4L2_EVENT_SOURCE_CHANGE &&
-	    inst->codec_state == VENUS_DEC_STATE_INIT &&
-	    !inst->reconfig)
-		return -EINVAL;
-
+	/*
+	 * A client that waits for V4L2_EVENT_SOURCE_CHANGE may still query the
+	 * CAPTURE format before the stream metadata is parsed; the decoder
+	 * interface then returns placeholder values rather than an error (see
+	 * "Initialization" in dev-decoder.rst). Codec2's V4L2 decoder relies on
+	 * this to set up its initial output buffers.
+	 */
 	if (inst->subscriptions & V4L2_EVENT_SOURCE_CHANGE)
 		return 0;
 
