@@ -6,6 +6,7 @@
 #include <linux/iio/consumer.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
+#include <linux/math64.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/ktime.h>
@@ -26,6 +27,12 @@
 
 /* SRAM offsets */
 #define QG_SDAM_OCV_OFFSET		0x4c /* 4-byte 0x4c-0x4f */
+/*
+ * Charge cycle bins kept by the Google battery driver downstream: eight
+ * little-endian counters of 1% of a full charge each, summed into cycles.
+ */
+#define QG_SDAM_CYCLE_COUNT_OFFSET	0x58 /* 16-byte 0x58-0x67 */
+#define QG_SDAM_CYCLE_COUNT_BINS	8
 #define QG_SDAM_LEARNED_CAPACITY_OFFSET	0x68 /* 2-byte 0x68-0x69 */
 
 struct qcom_qg_chip {
@@ -316,7 +323,77 @@ static enum power_supply_property qcom_qg_props[] = {
 	POWER_SUPPLY_PROP_CHARGE_FULL,
 	POWER_SUPPLY_PROP_CAPACITY,
 	POWER_SUPPLY_PROP_TEMP,
+	POWER_SUPPLY_PROP_CYCLE_COUNT,
+	POWER_SUPPLY_PROP_HEALTH,
+	POWER_SUPPLY_PROP_CHARGE_COUNTER,
 };
+
+static int qcom_qg_get_learned_capacity(struct qcom_qg_chip *chip, int *uah)
+{
+	__le16 learned;
+	int ret;
+
+	ret = nvmem_device_read(chip->sdam, QG_SDAM_LEARNED_CAPACITY_OFFSET,
+				sizeof(learned), &learned);
+	if (ret < 0)
+		return ret;
+
+	*uah = le16_to_cpu(learned) * 1000; /* mAh to uAh */
+
+	return 0;
+}
+
+static int qcom_qg_get_temp(struct qcom_qg_chip *chip, int *decidegc)
+{
+	int ret;
+
+	ret = iio_read_channel_processed(chip->batt_therm_chan, decidegc);
+	if (ret < 0)
+		return ret;
+
+	*decidegc /= 100; /* 1/1000 °C (millidegC) to 1/10 °C */
+
+	return 0;
+}
+
+/* Outside the battery's charging temperature window, as downstream JEITA */
+static int qcom_qg_get_health(struct qcom_qg_chip *chip, int *val)
+{
+	int ret, temp;
+
+	ret = qcom_qg_get_temp(chip, &temp);
+	if (ret)
+		return ret;
+
+	if (chip->batt_info->temp_max != INT_MAX &&
+	    temp >= chip->batt_info->temp_max * 10)
+		*val = POWER_SUPPLY_HEALTH_OVERHEAT;
+	else if (chip->batt_info->temp_min != INT_MIN &&
+		 temp <= chip->batt_info->temp_min * 10)
+		*val = POWER_SUPPLY_HEALTH_COLD;
+	else
+		*val = POWER_SUPPLY_HEALTH_GOOD;
+
+	return 0;
+}
+
+static int qcom_qg_get_cycle_count(struct qcom_qg_chip *chip, int *val)
+{
+	__le16 bins[QG_SDAM_CYCLE_COUNT_BINS];
+	int ret, i, sum = 0;
+
+	ret = nvmem_device_read(chip->sdam, QG_SDAM_CYCLE_COUNT_OFFSET,
+				sizeof(bins), bins);
+	if (ret < 0)
+		return ret;
+
+	for (i = 0; i < QG_SDAM_CYCLE_COUNT_BINS; i++)
+		sum += le16_to_cpu(bins[i]);
+
+	*val = sum / 100;
+
+	return 0;
+}
 
 static int qcom_qg_get_property(struct power_supply *psy,
 				enum power_supply_property psp,
@@ -373,11 +450,9 @@ static int qcom_qg_get_property(struct power_supply *psy,
 		val->intval = chip->batt_info->charge_full_design_uah;
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_FULL:
-		ret = nvmem_device_read(chip->sdam,
-				QG_SDAM_LEARNED_CAPACITY_OFFSET, 2, &val->intval);
-		if (ret < 0)
+		ret = qcom_qg_get_learned_capacity(chip, &val->intval);
+		if (ret)
 			return ret;
-		val->intval *= 1000; /* mAh to uAh */
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY: {
 		int raw, current_ua;
@@ -393,11 +468,30 @@ static int qcom_qg_get_property(struct power_supply *psy,
 		break;
 	}
 	case POWER_SUPPLY_PROP_TEMP:
-		ret = iio_read_channel_processed
-					(chip->batt_therm_chan, &val->intval);
-		if (ret < 0)
+		ret = qcom_qg_get_temp(chip, &val->intval);
+		if (ret)
 			return ret;
-		val->intval /= 100; /* 1/1000 °C (millidegC) to 1/10 °C */
+		break;
+	case POWER_SUPPLY_PROP_HEALTH:
+		ret = qcom_qg_get_health(chip, &val->intval);
+		if (ret)
+			return ret;
+		break;
+	case POWER_SUPPLY_PROP_CHARGE_COUNTER: {
+		int full, soc;
+
+		ret = qcom_qg_get_learned_capacity(chip, &full);
+		if (ret)
+			return ret;
+		scoped_guard(mutex, &chip->soc_lock)
+			soc = chip->soc;
+		val->intval = div_s64((s64)full * clamp(soc, 0, 100), 100);
+		break;
+	}
+	case POWER_SUPPLY_PROP_CYCLE_COUNT:
+		ret = qcom_qg_get_cycle_count(chip, &val->intval);
+		if (ret)
+			return ret;
 		break;
 	default:
 		dev_err(chip->dev, "invalid property: %d\n", psp);
