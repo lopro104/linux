@@ -72,6 +72,13 @@
 		irq-gpios = <&tlmm 90 GPIO_ACTIVE_HIGH>;
 		reset-gpios = <&tlmm 91 GPIO_ACTIVE_LOW>;
 
+		clocks = <&gcc GCC_QUPV3_WRAP_1_M_AHB_CLK>,
+			 <&gcc GCC_QUPV3_WRAP_1_S_AHB_CLK>,
+			 <&gcc GCC_QUPV3_WRAP1_CORE_CLK>,
+			 <&gcc GCC_QUPV3_WRAP1_CORE_2X_CLK>,
+			 <&gcc GCC_QUPV3_WRAP1_S0_CLK>;
+		clock-names = "m-ahb", "s-ahb", "core", "core2x", "se";
+
 		pinctrl-0 = <&fp_irq_default>, <&fp_reset_default>;
 		pinctrl-names = "default";
 	};
