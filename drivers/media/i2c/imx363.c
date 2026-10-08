@@ -1278,7 +1278,6 @@ static int imx363_init_controls(struct imx363 *imx363)
 	link_cfg = link_freq_cfgs[imx363->lane_mode_idx].link_cfg;
 	pixel_rate = link_freq_to_pixel_rate(imx363->link_freq_menu_items[0],
 					     link_cfg);
-	printk(KERN_INFO "imx363: pixel_rate: %lld\n", pixel_rate);
 
 	/* By default, PIXEL_RATE is read only */
 	imx363->pixel_rate = v4l2_ctrl_new_std(ctrl_hdlr, &imx363_ctrl_ops,
@@ -1461,7 +1460,6 @@ static int imx363_probe(struct i2c_client *client)
 		break;
 	case 4:
 		imx363->lane_mode_idx = IMX363_4_LANE_MODE;
-		printk(KERN_INFO "imx363: 4 lanes\n");
 		break;
 	default:
 		dev_err(&client->dev, "Invalid data lanes: %u\n",
