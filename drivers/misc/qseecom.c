@@ -250,10 +250,13 @@ static void qsee_dmac_flush_range(void *vaddr, size_t len)
 
 /*
  * Issue a QSEE SMC and resume it while TZ reports it as interrupted, like
- * qcom_scm does: re-issue with function ID QCOM_SCM_INTERRUPTED and the
- * session state TZ returned in x6 (ARM_SMCCC_QUIRK_QCOM_A6). Treating the
- * interrupted status as a result leaves the call pending in TZ, and the
- * next SMC then never returns (one CPU stuck in the secure world).
+ * downstream scm_call2(): re-issue with x0 = SCM_INTERRUPTED and x1..x6
+ * exactly as TZ returned them, since that is where this TZ keeps the
+ * resume context. Re-sending the original arguments (as qcom_scm does,
+ * only carrying x6 over) resumes the wrong state here and the call comes
+ * back as a bogus QSEOS_RESULT_INCOMPLETE for listener 0, leaving the TA
+ * wedged; treating the interrupted status as a result instead leaves the
+ * call pending in TZ and the next SMC never returns.
  */
 #define QSEECOM_SCM_REG_ARGS		4	/* x2..x5 */
 #define QSEECOM_SCM_FIRST_EXT_ARG	3	/* args[3..] via x5 when > 4 */
@@ -261,7 +264,7 @@ static void qsee_dmac_flush_range(void *vaddr, size_t len)
 static int __qseecom_smc(uint32_t smc_id, struct scm_desc *desc,
 			 struct arm_smccc_res *res)
 {
-	struct arm_smccc_quirk quirk = { .id = ARM_SMCCC_QUIRK_QCOM_A6 };
+	struct arm_smccc_1_2_regs args = {}, out;
 	unsigned int nargs = desc->arginfo & 0xf;
 	/* As scm_call2() on an ARMv8-64 TZ: use the SMC64 calling convention */
 	unsigned long fn = smc_id | QSEECOM_SMC64_MASK, x5 = desc->args[3];
@@ -290,16 +293,28 @@ static int __qseecom_smc(uint32_t smc_id, struct scm_desc *desc,
 		x5 = ext_dma;
 	}
 
-	quirk.state.a6 = 0;
+	args.a0 = fn;
+	args.a1 = desc->arginfo;
+	args.a2 = desc->args[0];
+	args.a3 = desc->args[1];
+	args.a4 = desc->args[2];
+	args.a5 = x5;
 
-	do {
-		arm_smccc_smc_quirk(fn, desc->arginfo, desc->args[0],
-				    desc->args[1], desc->args[2], x5,
-				    quirk.state.a6, 0, res, &quirk);
+	for (;;) {
+		arm_smccc_1_2_smc(&args, &out);
+		if (out.a0 != QSEECOM_SCM_INTERRUPTED)
+			break;
+		/* resume: hand x0..x6 back as returned, x7+ are not inputs */
+		args = (struct arm_smccc_1_2_regs) {
+			.a0 = out.a0, .a1 = out.a1, .a2 = out.a2, .a3 = out.a3,
+			.a4 = out.a4, .a5 = out.a5, .a6 = out.a6,
+		};
+	}
 
-		if (res->a0 == QSEECOM_SCM_INTERRUPTED)
-			fn = res->a0;
-	} while (res->a0 == QSEECOM_SCM_INTERRUPTED);
+	res->a0 = out.a0;
+	res->a1 = out.a1;
+	res->a2 = out.a2;
+	res->a3 = out.a3;
 
 	if (ext) {
 		dma_unmap_single(qseecom.dev, ext_dma, ext_len, DMA_TO_DEVICE);
@@ -1038,7 +1053,7 @@ static int __qseecom_process_incomplete_cmd(struct qseecom_dev_handle *data,
 	struct sglist_info *table = NULL;
 
 	qseecom.app_block_ref_cnt++;
-	while (resp->result == QSEOS_RESULT_INCOMPLETE) {
+	while (ret == 0 && resp->result == QSEOS_RESULT_INCOMPLETE) {
 		lstnr = resp->data;
 		mutex_lock(&listener_access_lock);
 		/*
