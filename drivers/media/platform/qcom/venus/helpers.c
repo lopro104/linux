@@ -503,6 +503,50 @@ void venus_helper_get_ts_metadata(struct venus_inst *inst, u64 timestamp_us,
 }
 EXPORT_SYMBOL_GPL(venus_helper_get_ts_metadata);
 
+/*
+ * True when a decoder input buffer holds only H.264/HEVC parameter sets
+ * (SPS/PPS/VPS, SEI, AUD...) and no slice data. Clients such as Android's
+ * Codec2 queue the codec-specific data as its own buffer; the firmware
+ * needs HFI_BUFFERFLAG_CODECCONFIG on such a buffer, otherwise it waits
+ * for the rest of the frame forever and never reports the sequence (no
+ * source change event, input never returned). Downstream sets the flag
+ * from a vendor V4L2 buffer flag; standard V4L2 has none, so look.
+ */
+static bool venus_dec_buf_is_codec_config(struct venus_inst *inst,
+					  struct vb2_buffer *vb)
+{
+	u32 pixfmt = inst->fmt_out ? inst->fmt_out->pixfmt : 0;
+	bool hevc = pixfmt == V4L2_PIX_FMT_HEVC;
+	u32 off = vb->planes[0].data_offset;
+	u32 size = vb2_get_plane_payload(vb, 0);
+	bool seen = false;
+	const u8 *p;
+	u32 i;
+
+	if (pixfmt != V4L2_PIX_FMT_H264 && !hevc)
+		return false;
+
+	p = vb2_plane_vaddr(vb, 0);
+	if (!p || size <= off)
+		return false;
+
+	for (i = off; i + 3 < size; i++) {
+		u8 type;
+
+		if (p[i] || p[i + 1] || p[i + 2] != 1)
+			continue;
+
+		i += 3;
+		type = hevc ? (p[i] >> 1) & 0x3f : p[i] & 0x1f;
+		/* slice NAL units: H.264 1..5, HEVC 0..31 */
+		if (hevc ? type < 32 : (type >= 1 && type <= 5))
+			return false;
+		seen = true;
+	}
+
+	return seen;
+}
+
 static int
 session_process_buf(struct venus_inst *inst, struct vb2_v4l2_buffer *vbuf)
 {
@@ -527,8 +571,11 @@ session_process_buf(struct venus_inst *inst, struct vb2_v4l2_buffer *vbuf)
 		if (vbuf->flags & V4L2_BUF_FLAG_LAST || !fdata.filled_len)
 			fdata.flags |= HFI_BUFFERFLAG_EOS;
 
-		if (inst->session_type == VIDC_SESSION_TYPE_DEC)
+		if (inst->session_type == VIDC_SESSION_TYPE_DEC) {
 			put_ts_metadata(inst, vbuf);
+			if (venus_dec_buf_is_codec_config(inst, vb))
+				fdata.flags |= HFI_BUFFERFLAG_CODECCONFIG;
+		}
 
 		venus_pm_load_scale(inst);
 	} else if (type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
