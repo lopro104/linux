@@ -204,6 +204,22 @@ vdec_try_fmt_common(struct venus_inst *inst, struct v4l2_format *f)
 			return NULL;
 	}
 
+	/*
+	 * A client that does not know the coded size yet may pass 0 or ~0
+	 * (Android's Codec2 sends -1x-1) on the bitstream queue. Clamping that
+	 * to the maximum configures the firmware for a 4K stream while the
+	 * client's initial CAPTURE buffers are tiny, which the firmware
+	 * rejects as insufficient resources. Start from the minimum instead;
+	 * the real size arrives with the source change event. vdec_s_fmt()
+	 * derives the CAPTURE format from the same request, so apply this to
+	 * both queues.
+	 */
+	if (!pixmp->width || pixmp->width == U32_MAX ||
+	    !pixmp->height || pixmp->height == U32_MAX) {
+		pixmp->width = frame_width_min(inst);
+		pixmp->height = frame_height_min(inst);
+	}
+
 	pixmp->width = clamp(pixmp->width, frame_width_min(inst),
 			     frame_width_max(inst));
 	pixmp->height = clamp(pixmp->height, frame_height_min(inst),
